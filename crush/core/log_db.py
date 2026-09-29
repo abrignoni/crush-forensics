@@ -36,6 +36,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from crush.core import tempdir
+from crush.core.ts_decode import unix_to_utc
 
 # ---------------------------------------------------------------------------
 # FilterSpec — immutable snapshot of active filter state
@@ -183,7 +184,7 @@ def _ts_to_unix(dt: datetime | None) -> float | None:
 def _unix_to_ts(unix: float | None) -> datetime | None:
     if unix is None:
         return None
-    return datetime.fromtimestamp(unix, tz=timezone.utc)
+    return unix_to_utc(unix)
 
 
 def entry_rows(source_id: int, entries: list[dict[str, Any]]) -> list[tuple[Any, ...]]:

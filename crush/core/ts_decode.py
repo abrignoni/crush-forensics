@@ -52,6 +52,21 @@ _MAC_EPOCH_OFFSET = 978_307_200     # seconds from Unix epoch to 2001-01-01
 _WIN_EPOCH_OFFSET = 11_644_473_600  # seconds from 1601-01-01 to Unix epoch
 
 
+def unix_to_utc(seconds: float) -> datetime | None:
+    """Unix seconds as an aware UTC datetime, or ``None`` if datetime can't
+    represent them (outside year 1 - 9999, NaN, inf).
+
+    epoch + timedelta rather than datetime.fromtimestamp(): the latter calls the
+    OS's C library, which on Windows rejects negative (pre-1970) and far-future
+    timestamps that Linux/Mac handle fine, and without tz= it converts to the
+    examiner's local time.
+    """
+    try:
+        return _UNIX_EPOCH + timedelta(seconds=seconds)
+    except (OverflowError, ValueError, TypeError):
+        return None
+
+
 def decode_ts(value: int | float, fmt: str) -> str | None:
     """Convert a raw integer/float to a UTC timestamp string using *fmt*.
 

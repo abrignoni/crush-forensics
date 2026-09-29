@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import math
 import struct
-from datetime import datetime, timezone
 from typing import NamedTuple
 
 from crush.core.issues import QT_TRANSLATE_NOOP
+from crush.core.ts_decode import unix_to_utc
 
 # Seconds between Unix epoch (1970-01-01) and Cocoa epoch (2001-01-01)
 _COCOA_OFFSET = 978_307_200
@@ -147,8 +147,7 @@ def interpret_fixed32(raw: bytes) -> list[Interpretation]:
 
 
 def _fmt_ts(unix_seconds: float) -> str:
-    try:
-        dt = datetime.fromtimestamp(unix_seconds, tz=timezone.utc)
-        return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
-    except Exception:
+    dt = unix_to_utc(unix_seconds)
+    if dt is None:
         return f"{unix_seconds}"
+    return dt.strftime("%Y-%m-%d %H:%M:%S UTC")

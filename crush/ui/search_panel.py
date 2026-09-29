@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import (
@@ -27,6 +26,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from crush.core.ts_decode import unix_to_utc
 from crush.core.vfs import VFS, VFSNode
 from crush.ui.wheel_scroll import install_horizontal_wheel_scroll
 from crush.ui.i18n import translate
@@ -49,12 +49,13 @@ def _fmt_size(n: int) -> str:
 
 
 def _fmt_ts(ts: float) -> str:
-    if ts <= 0:
+    # 0 is the VFS's "no timestamp" value; negative (pre-1970) values are real.
+    if not ts:
         return ""
-    try:
-        return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
-    except Exception:
-        return ""
+    dt = unix_to_utc(ts)
+    if dt is None:
+        return translate("SearchPanel", "{value} (out of range)").format(value=ts)
+    return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
 _ISOBMFF_IMAGE_BRANDS: frozenset[bytes] = frozenset({

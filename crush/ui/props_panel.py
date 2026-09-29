@@ -3,7 +3,6 @@
 """Properties panel — right dock, shows file metadata for the selected artifact."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any
 
 from PySide6.QtCore import Qt, Signal
@@ -15,6 +14,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from crush.core.ts_decode import unix_to_utc
 from crush.core.vfs import VFS, ITunesBackupVFS, VFSNode
 from crush.core.issues import CatalogText, render_value
 from crush.ui import open_url
@@ -281,8 +281,13 @@ class PropertiesPanel(QScrollArea):
 
     def _add_timestamp(self, label: str, ts_value: float) -> None:
         if ts_value:
-            ts = datetime.fromtimestamp(ts_value, tz=timezone.utc)
-            text = ts.strftime("%Y-%m-%d %H:%M:%S UTC")
+            ts = unix_to_utc(ts_value)
+            if ts is None:
+                text = translate("PropertiesPanel", "{value} (out of range)").format(
+                    value=ts_value
+                )
+            else:
+                text = ts.strftime("%Y-%m-%d %H:%M:%S UTC")
         else:
             text = "—"
         lbl = QLabel(text)

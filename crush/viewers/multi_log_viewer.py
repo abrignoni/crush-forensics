@@ -92,6 +92,7 @@ from crush.core import tempdir
 from crush.core.issues import render_value
 from crush.core.log_db import _INSERT_SQL, FilterSpec, LogDatabase, _unix_to_ts, entry_rows
 from crush.core.log_ts import TS_NO_YEAR, TS_NO_ZONE, TS_UNPARSED
+from crush.core.ts_decode import unix_to_utc
 from crush.core.vfs import VFS, VFSNode
 from crush.ui.log_scope import window_log_scope
 from crush.ui.wheel_scroll import install_horizontal_wheel_scroll
@@ -2018,12 +2019,8 @@ class MultiLogViewer(QWidget):
     def _apply_time_filter(self) -> None:
         if not self._time_filter_cb.isChecked():
             return
-        from_dt = datetime.fromtimestamp(
-            self._dt_from.dateTime().toSecsSinceEpoch(), tz=timezone.utc
-        )
-        to_dt = datetime.fromtimestamp(
-            self._dt_to.dateTime().toSecsSinceEpoch(), tz=timezone.utc
-        )
+        from_dt = unix_to_utc(self._dt_from.dateTime().toSecsSinceEpoch())
+        to_dt = unix_to_utc(self._dt_to.dateTime().toSecsSinceEpoch())
         self._model.set_time_range(from_dt, to_dt)
 
     def _reset_time_filter(self) -> None:

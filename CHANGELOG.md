@@ -20,6 +20,9 @@ All notable changes to Crush will be documented in this file.
 
 ### Bug Fixes
 
+- Fixed the search panel's Modified column showing the examiner's local time without saying so, and leaving pre-1970 or unreadable times blank; it now shows UTC, marked as such, and an out-of-range value as the raw number.
+- Fixed the Properties panel and Multi-Log Studio failing on Windows for a time before 1970 or far in the future; such times now show the same on every OS.
+
 - Fixed an EWF acquisition without a recognised filesystem opening as the `.E01` file's own bytes instead of the acquired disk; it now opens with the disk as one unrecognised region, readable and verifiable.
 - Fixed Verify EWF Hash… not reporting chunks that fail their own checksum.
 - Fixed Open External, Open in New Window and Send to Peach copying a file whose name holds a character Windows doesn't allow (e.g. `:`) under that name, which on Windows failed or wrote into a stream of another file; the temp copy now gets the same replacements as an export.
