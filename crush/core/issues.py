@@ -1032,6 +1032,69 @@ MESSAGES: dict[str, str] = {
         "undecoded object table: {detail}",
         "plist.nska_failed",
     ),
+    "plist.format_nska_xml": QT_TRANSLATE_NOOP(
+        "ParseIssue",
+        "XML (NSKeyedArchiver — not resolved)",
+        "plist.format_nska_xml",
+    ),
+    "plist.nska_xml_unresolved": QT_TRANSLATE_NOOP(
+        "ParseIssue",
+        "NSKeyedArchiver archives in XML form are not resolved into an object "
+        "tree; the tree shows the archive's undecoded object table",
+        "plist.nska_xml_unresolved",
+    ),
+    "plist.nska_shared": QT_TRANSLATE_NOOP(
+        "ParseIssue",
+        "{count:,} (plus {classes:,} class definitions)",
+        "plist.nska_shared",
+    ),
+    "plist.format_nska_unresolved": QT_TRANSLATE_NOOP(
+        "ParseIssue",
+        "binary (NSKeyedArchiver — not resolved)",
+        "plist.format_nska_unresolved",
+    ),
+    "plist.nska_missing_refs": QT_TRANSLATE_NOOP(
+        "ParseIssue",
+        "Not resolved: {count:,} reference(s) point past the end of $objects, "
+        "so the tree shows the archive's undecoded object table",
+        "plist.nska_missing_refs",
+    ),
+    "plist.nska_cycle": QT_TRANSLATE_NOOP(
+        "ParseIssue",
+        "Not resolved: an object reaches itself through its references (a cycle), "
+        "so the tree shows the archive's undecoded object table",
+        "plist.nska_cycle",
+    ),
+    "plist.nska_root_none": QT_TRANSLATE_NOOP(
+        "ParseIssue",
+        "none ($top has no root key)",
+        "plist.nska_root_none",
+    ),
+    "plist.nska_root_plain": QT_TRANSLATE_NOOP(
+        "ParseIssue",
+        "none (root is a plain {type} value)",
+        "plist.nska_root_plain",
+    ),
+    "plist.nska_root_missing": QT_TRANSLATE_NOOP(
+        "ParseIssue",
+        "unknown (root or its class points past the end of $objects)",
+        "plist.nska_root_missing",
+    ),
+    "plist.nska_root_no_classname": QT_TRANSLATE_NOOP(
+        "ParseIssue",
+        "unknown (the root object's class definition has no $classname)",
+        "plist.nska_root_no_classname",
+    ),
+    "plist.nska_top_empty": QT_TRANSLATE_NOOP(
+        "ParseIssue",
+        "none ($top is empty)",
+        "plist.nska_top_empty",
+    ),
+    "plist.nska_no_graph": QT_TRANSLATE_NOOP(
+        "ParseIssue",
+        "Not counted: $objects is not a list or $top is not a dictionary",
+        "plist.nska_no_graph",
+    ),
     # -- XML --------------------------------------------------------------
     "xml.syntax_error": QT_TRANSLATE_NOOP(
         "ParseIssue",

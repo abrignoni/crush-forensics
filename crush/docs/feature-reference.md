@@ -414,6 +414,8 @@ Plays audio and video files (MP4, MOV, MP3, M4A, AAC, WAV, etc.) using the syste
 
 Displays binary and XML property lists as a collapsible tree. Supports nested structures including arrays, dictionaries, data blobs, dates, and NSKeyedArchiver objects.
 
+For an NSKeyedArchiver archive (recognised by its `$archiver` key, binary or XML), **Decoded** shows the object graph resolved from `$top`'s `root` (from all of `$top` when it has no `root`); the **Stored archive** tab shows the archive as stored — every `$top` key and every `$objects` entry by index, with references as UIDs. The Properties panel names the root object's class and counts the archive's objects, those referenced more than once (class definitions counted separately), those no reference from `$top` reaches, and references to objects that don't exist, and lists `$top`'s keys.
+
 ### JSON Viewer
 
 Displays JSON files as a collapsible, searchable tree. Arrays and objects can be expanded or collapsed individually. Copy a node value via right-click.
@@ -570,7 +572,7 @@ After the pipeline runs, the resulting bytes are tested against all available in
 | **Hex view** | baseline | Annotated hex dump with address / hex / ASCII columns |
 | **UTF-8 text** | ✓ | Only ✓ when all bytes are valid UTF-8; strict decode |
 | **JSON** | ✓ | Pretty-prints valid JSON; also detects escaped JSON embedded in a string |
-| **Plist / bplist** | ✓ | Decodes binary (`bplist00`) or XML property list. NSKeyedArchiver payloads are automatically deserialised and the object graph is rendered as a Python pprint |
+| **Plist / bplist** | ✓ | Decodes binary (`bplist00`) or XML property list and shows it as in the [Plist / Tree Viewer](#plist--tree-viewer): a tree (Decoded), the text, and for an NSKeyedArchiver archive a **Stored archive** tab, with Format, Status and the archive's object counts in a line above. **Copy** copies the decoded structure as text |
 | **XML** | ✓ | Parses and pretty-prints well-formed XML (via lxml) |
 | **Android Binary XML (ABX)** | ✓ | Reconstructs XML from Android's compact binary XML format |
 | **Image** | ✓ | Renders the image inline — PNG, JPEG, GIF, BMP, WebP, HEIC, AVIF |
@@ -591,7 +593,7 @@ After the pipeline runs, the resulting bytes are tested against all available in
 Many iOS apps store serialised objects as Base64-encoded bplist BLOBs in SQLite. To inspect:
 1. Right-click the cell → *Inspect Cell…*
 2. Add step: **Base64 (decode)**
-3. The Interpretations list shows **✓ Plist / bplist** — click it to read the deserialised object graph, including NSKeyedArchiver structures.
+3. The Interpretations list shows **✓ Plist / bplist** — click it to browse the deserialised object graph; for NSKeyedArchiver data, the **Stored archive** tab and the counts above show the archive as stored.
 
 **JWT / OAuth token stored in a database**
 

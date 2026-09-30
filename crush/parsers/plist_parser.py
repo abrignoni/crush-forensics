@@ -10,6 +10,7 @@ from typing import Any, cast
 from crush.core.issues import ParseIssue
 from crush.core.vfs import VFS, VFSNode
 from crush.parsers.base import AbstractParser, ParseResult
+from crush.parsers.nska_archive import archive_stats, is_keyed_archive, root_class
 from crush.third_party.ccl_bplist import (
     load as bplist_load,
     deserialise_NsKeyedArchiver,
@@ -43,7 +44,7 @@ class PlistParser(AbstractParser):
         try:
             raw = vfs.read(node)
             raw_text: str | bytes
-            nska_issue: ParseIssue | None = None
+            nska_issue: ParseIssue | list[ParseIssue] | None = None
             fmt: str | ParseIssue
             if raw[:6] == _BPLIST_MAGIC:
                 fmt = "binary"
@@ -52,9 +53,36 @@ class PlistParser(AbstractParser):
                 _deserialize = cast(Any, deserialise_NsKeyedArchiver)
                 _set_object_converter(_nska_converter)
                 data = _bplist_load(BytesIO(raw))
-                if isinstance(data, dict) and data.get("$archiver") in ("NSKeyedArchiver", "NRKeyedArchiver"):
+                loaded = data
+                text_index: str | None = None
+                raw_text = ""
+                stats = archive_stats(data) if is_keyed_archive(data) else None
+                # ccl_bplist resolves lazily, so a UID past the end of
+                # $objects fails only when something reaches it -- a later
+                # step, or expanding Decoded -- and a cycle never ends (Text
+                # tab, Expand All, the filter). Not resolving such an archive
+                # at all is the one deterministic way to keep that from
+                # surfacing halfway; Decoded then shows the archive as stored.
+                unresolvable: list[ParseIssue] = []
+                if stats is not None and stats.missing_references:
+                    unresolvable.append(ParseIssue(
+                        "plist.nska_missing_refs", {"count": stats.missing_references}
+                    ))
+                if stats is not None and stats.has_cycle:
+                    unresolvable.append(ParseIssue("plist.nska_cycle"))
+                if unresolvable:
+                    fmt = ParseIssue("plist.format_nska_unresolved")
+                    nska_issue = unresolvable[0] if len(unresolvable) == 1 else unresolvable
+                elif is_keyed_archive(data):
                     try:
-                        data = _deserialize(data)
+                        resolved = _deserialize(data)
+                        # Built from the resolved tree inside this try: a
+                        # failure there is a failed resolve too, not a failed
+                        # plist (which would fall back to hex, counts and the
+                        # Stored archive tab lost).
+                        raw_text = _text_tab(resolved)
+                        text_index = _flatten_text(resolved)
+                        data = resolved
                         fmt = "binary (NSKeyedArchiver)"
                     except Exception as nska_exc:
                         fmt = ParseIssue("plist.format_nska_failed")
@@ -62,22 +90,33 @@ class PlistParser(AbstractParser):
                         logging.getLogger(__name__).warning(
                             "NSKeyedArchiver deserialization failed for %s: %s", node.path, nska_exc
                         )
-                # Binary plists have no source text of their own — reconstruct
-                # a readable form of the decoded structure for the Text tab.
-                raw_text = json.dumps(data, indent=2, ensure_ascii=False, default=str)
+                if not raw_text:
+                    raw_text = _text_tab(data)
             else:
                 fmt = "XML"
                 data = plistlib.loads(raw)
+                loaded = data
+                text_index = None
+                if is_keyed_archive(data):
+                    fmt = ParseIssue("plist.format_nska_xml")
+                    nska_issue = ParseIssue("plist.nska_xml_unresolved")
                 raw_text = raw
             meta: dict[str, Any] = {"Format": fmt, "File size": f"{node.size:,} B"}
             if nska_issue is not None:
                 meta["Status"] = nska_issue
+            hints: dict[str, Any] = {"raw_text": raw_text}
+            if is_keyed_archive(loaded):
+                meta.update(_archive_metadata(loaded))
+                # The archive as stored, in its own tab for every keyed
+                # archive -- also where Decoded shows the same (XML, or
+                # resolving failed), so it's always found in one place.
+                hints["archive"] = loaded
             return ParseResult(
                 viewer_type="tree_text",
                 data=data,
                 metadata=meta,
-                text_index=_flatten_text(data),
-                viewer_hints={"raw_text": raw_text},
+                text_index=text_index if text_index is not None else _flatten_text(data),
+                viewer_hints=hints,
             )
         except Exception as exc:
             logging.getLogger(__name__).warning("Plist parse error for %s: %s", node.path, exc)
@@ -94,6 +133,30 @@ class PlistParser(AbstractParser):
                     "File size": f"{node.size:,} B",
                 },
             )
+
+
+def _text_tab(data: Any) -> str:
+    """Binary plists have no source text of their own: a readable form of
+    the decoded structure for the Text tab."""
+    return json.dumps(data, indent=2, ensure_ascii=False, default=str)
+
+
+def _archive_metadata(archive: dict[str, Any]) -> dict[str, Any]:
+    """Object-graph counts of an NSKeyedArchiver archive, every row shown
+    even when 0 (it was checked). See crush/parsers/nska_archive.py."""
+    stats = archive_stats(archive)
+    if stats is None:
+        return {"Objects": ParseIssue("plist.nska_no_graph")}
+    return {
+        "Root class": root_class(archive),
+        "Objects": f"{stats.objects:,}",
+        "Shared objects": ParseIssue(
+            "plist.nska_shared", {"count": stats.shared, "classes": stats.shared_classes}
+        ),
+        "Unreachable objects": f"{stats.unreachable:,}",
+        "Missing references": f"{stats.missing_references:,}",
+        "Top keys": ", ".join(stats.top_keys) or ParseIssue("plist.nska_top_empty"),
+    }
 
 
 def _nska_converter(obj: Any) -> Any:

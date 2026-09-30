@@ -175,7 +175,7 @@ def test_expand_all_builds_every_row(qapp, no_initial_expand) -> None:
 
 def test_class_metadata_rows_stay_hidden_when_built_on_demand(qapp, no_initial_expand) -> None:
     obj = {"$class": {"$classname": "NSDate"}, "time": 1.5}
-    widget = TreeViewer({"outer": {"date": obj}})
+    widget = TreeViewer({"outer": {"date": obj}}, fold_class_meta=True)
     outer = widget._model.index(0, 0)
     _expand(qapp, widget, outer)
     date = widget._model.index(0, 0, outer)
@@ -240,11 +240,11 @@ def test_subtree_search_answers_each_container_once_per_pass(
     inner = {"x": "needle"}
     middle = {"inner": inner}
     outer = {"middle": middle}
-    fp = tree_viewer._FilterPass("needle")
+    fp = tree_viewer._FilterPass("needle", tree_viewer._CLASS_META_KEYS)
     assert tree_viewer._subtree_matches(outer, fp)
     assert fp.seen[id(middle)] and fp.seen[id(inner)]
 
-    def fail(obj):  # noqa: ANN001, ANN202
+    def fail(*_args):  # noqa: ANN002, ANN202
         raise AssertionError("walked again")
 
     monkeypatch.setattr(tree_viewer, "_child_entries", fail)
@@ -280,7 +280,9 @@ def test_filter_sees_the_same_value_text_as_the_cell(
     ]
     translated: dict[str, str] = {}
     for value in values:
-        assert tree_viewer._display_value_text(value, translated) == tree_viewer._value_texts(value)[1]
+        hidden = tree_viewer._CLASS_META_KEYS
+        shown = tree_viewer._display_value_text(value, translated, hidden)
+        assert shown == tree_viewer._value_texts(value, hidden)[1]
 
 
 def test_hex_offset_selects_a_row_not_built_yet(qapp, no_initial_expand) -> None:
