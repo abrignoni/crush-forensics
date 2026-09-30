@@ -4,10 +4,10 @@
 from __future__ import annotations
 
 import plistlib
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
-from PySide6.QtCore import QT_TRANSLATE_NOOP, Qt
+from PySide6.QtCore import QT_TRANSLATE_NOOP, QModelIndex, QPersistentModelIndex, Qt, QTimer
 from PySide6.QtGui import QKeySequence, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QApplication,
@@ -25,21 +25,168 @@ from crush.ui.wheel_scroll import install_horizontal_wheel_scroll
 from crush.viewers.byte_mapped_tree_hex import ByteMappedTreeHex
 from crush.core.issues import ParseIssue, render
 from crush.ui.i18n import translate
-from crush.viewers.generated_text import EXPORT_TEXT_ROLE, Gen, gen_item
+from crush.viewers.generated_text import EXPORT_TEXT_ROLE, Gen, gen_text
 
 _USER_ROLE = Qt.ItemDataRole.UserRole
 _BYTE_RANGE_ROLE = Qt.ItemDataRole.UserRole + 1
 _BYTE_HIGHLIGHT_RANGES_ROLE = Qt.ItemDataRole.UserRole + 2
+# Set on a container row whose child rows aren't built yet (see _LazyTreeModel).
+_PENDING_ROLE = Qt.ItemDataRole.UserRole + 3
+
+# NSKeyedArchiver class metadata: not shown as rows, the classname goes to
+# the Type column instead.
+_CLASS_META_KEYS = ("$class", "$classes", "$classname")
+
+# Rows the initial expansion may build (see TreeViewer._expand_initially):
+# a few screens' worth, so opening stays instant whatever the file's size.
+_INITIAL_EXPAND_ROWS = 1000
 
 
 class _ObjRef:
     """Keep the node's original decoded value opaque to Qt's QVariant
     conversion — a bare dict/list/int stored via setData() gets walked by
     shiboken looking for a native Qt type, and a value in the uint64 range
-    (e.g. an NSKeyedArchiver UID) raises OverflowError partway through."""
+    (e.g. an NSKeyedArchiver UID) raises OverflowError partway through.
+    *path* is the node's key path, for building its child rows later."""
 
-    def __init__(self, obj: Any) -> None:
+    def __init__(self, obj: Any, path: tuple[str, ...] = ()) -> None:
         self.obj = obj
+        self.path = path
+
+
+def _child_entries(obj: Any) -> list[tuple[str, Any]]:
+    """(key, value) of each child row of *obj*; empty for a leaf."""
+    if isinstance(obj, dict):
+        return [(str(k), v) for k, v in obj.items() if k not in _CLASS_META_KEYS]
+    if isinstance(obj, (list, tuple)):
+        return [(str(i), v) for i, v in enumerate(obj)]
+    return []
+
+
+def _has_child_rows(obj: Any) -> bool:
+    if isinstance(obj, dict):
+        return any(k not in _CLASS_META_KEYS for k in obj)
+    return isinstance(obj, (list, tuple)) and bool(obj)
+
+
+def _child_row_count(item: QStandardItem) -> int:
+    """Rows under *item*, built or not."""
+    ref = item.data(_USER_ROLE)
+    if not item.data(_PENDING_ROLE) or not isinstance(ref, _ObjRef):
+        return item.rowCount()
+    obj = ref.obj
+    if isinstance(obj, dict):
+        return sum(1 for k in obj if k not in _CLASS_META_KEYS)
+    return len(obj)
+
+
+_KEYS_TEXT = QT_TRANSLATE_NOOP("GeneratedView", "({count} keys)")
+_ITEMS_TEXT = QT_TRANSLATE_NOOP("GeneratedView", "({count} items)")
+_BLOB_TEXT = QT_TRANSLATE_NOOP("GeneratedView", "<BLOB {size:,} B>")
+
+
+def _generated_value(obj: Any) -> tuple[str, dict[str, int]] | None:
+    """(template, params) of a Value cell in Crush's own words; None for file data."""
+    if isinstance(obj, dict):
+        return _KEYS_TEXT, {"count": sum(1 for k in obj if k not in _CLASS_META_KEYS)}
+    if isinstance(obj, (list, tuple)):
+        return _ITEMS_TEXT, {"count": len(obj)}
+    if isinstance(obj, bytes):
+        return _BLOB_TEXT, {"size": len(obj)}
+    return None
+
+
+def _value_texts(obj: Any) -> tuple[str, str]:
+    """(English original, display text) of *obj*'s Value cell."""
+    generated = _generated_value(obj)
+    if generated is not None:
+        template, params = generated
+        return Gen(template, **params).pair()
+    if isinstance(obj, ParseIssue):
+        # A parser's note (e.g. in the Realm File Structure tree): shown in
+        # the UI language, copied in English.
+        return str(obj), render(obj, localized=True)
+    return str(obj), str(obj)
+
+
+def _display_value_text(obj: Any, translated: dict[str, str]) -> str:
+    """_value_texts(obj)[1], with each template translated once per filter
+    pass (kept in *translated*) instead of once per row: the filter asks for
+    every row's text, built or not."""
+    generated = _generated_value(obj)
+    if generated is None:
+        return _value_texts(obj)[1]
+    template, params = generated
+    display = translated.get(template)
+    if display is None:
+        display = translated[template] = gen_text(template)
+    try:
+        return display.format(**params)
+    except (KeyError, IndexError, ValueError):
+        # As Gen.pair(): a translation whose placeholders don't fit falls back to English.
+        return template.format(**params)
+
+
+class _FilterPass:
+    """What one filter pass remembers: each container's answer (the filter
+    asks again at every level it builds on the way down to a hit) and each
+    translated template."""
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+        self.seen: dict[int, bool] = {}
+        self.translated: dict[str, str] = {}
+
+
+def _subtree_matches(obj: Any, fp: _FilterPass) -> bool:
+    """Whether a row below *obj* would show the filter text (lowercase) in
+    its Key or Value cell -- the filter's test, run on the data of rows not
+    built yet."""
+    known = fp.seen.get(id(obj))
+    if known is not None:
+        return known
+    found = False
+    for key, value in _child_entries(obj):
+        if (
+            fp.text in key.lower()
+            or fp.text in _display_value_text(value, fp.translated).lower()
+            or _subtree_matches(value, fp)
+        ):
+            found = True
+            break
+    fp.seen[id(obj)] = found
+    return found
+
+
+class _LazyTreeModel(QStandardItemModel):
+    """Builds a container's child rows the first time they're needed
+    (expanding it, the filter, a hex click) instead of all up front:
+    a large file (issue #127: a 15 MB XML is ~500k rows) otherwise froze the
+    UI for tens of seconds before showing anything. Nothing is left out --
+    every row is built as soon as its parent is opened."""
+
+    def __init__(self, populate: Callable[[QStandardItem], None]) -> None:
+        super().__init__()
+        self._populate = populate
+
+    def _pending_item(self, parent: QModelIndex | QPersistentModelIndex) -> QStandardItem | None:
+        if not parent.isValid():
+            return None
+        item = self.itemFromIndex(parent.siblingAtColumn(0))
+        return item if item is not None and item.data(_PENDING_ROLE) else None
+
+    def hasChildren(self, parent: QModelIndex | QPersistentModelIndex = QModelIndex()) -> bool:  # noqa: B008
+        if self._pending_item(parent) is not None:
+            return True
+        return super().hasChildren(parent)
+
+    def canFetchMore(self, parent: QModelIndex | QPersistentModelIndex) -> bool:
+        return self._pending_item(parent) is not None
+
+    def fetchMore(self, parent: QModelIndex | QPersistentModelIndex) -> None:
+        item = self._pending_item(parent)
+        if item is not None:
+            self._populate(item)
 
 
 def _valid_byte_range(value: object) -> bool:
@@ -113,7 +260,12 @@ class TreeViewer(QWidget):
         self._search.setPlaceholderText(translate("TreeViewer", "Filter keys / values…"))
         self._search.setClearButtonEnabled(True)
         self._search.setFixedWidth(200)
-        self._search.textChanged.connect(self._apply_filter)
+        # Each filter pass walks the whole tree: wait for a pause in typing.
+        self._filter_timer = QTimer(self)
+        self._filter_timer.setSingleShot(True)
+        self._filter_timer.setInterval(200)
+        self._filter_timer.timeout.connect(lambda: self._apply_filter(self._search.text()))
+        self._search.textChanged.connect(lambda _text: self._filter_timer.start())
         tb_layout.addWidget(self._search)
         self._hex_toggle_btn: QPushButton | None = None
         if self._raw is not None:
@@ -125,7 +277,8 @@ class TreeViewer(QWidget):
         layout.addWidget(toolbar)
 
         # Tree view
-        self._model = QStandardItemModel()
+        self._filter_text = ""
+        self._model = _LazyTreeModel(self._populate_children)
         self._model.setHorizontalHeaderLabels(
             [
                 translate("TreeViewer", "Key / Index"),
@@ -136,6 +289,9 @@ class TreeViewer(QWidget):
 
         self._tree = QTreeView()
         self._tree.setModel(self._model)
+        # Read-only for the whole view rather than per item (three calls per
+        # row add up on a large tree).
+        self._tree.setEditTriggers(QTreeView.EditTrigger.NoEditTriggers)
         self._tree.setAlternatingRowColors(True)
         self._tree.setAnimated(True)
         install_horizontal_wheel_scroll(self._tree)
@@ -184,7 +340,26 @@ class TreeViewer(QWidget):
         )
 
     def _expand_all(self) -> None:
-        self._tree.expandAll()
+        # Builds every row not built yet -- on the UI thread (Qt items can't
+        # be made elsewhere), so a large tree takes a while: say so.
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            # All rows first, then one expand pass: letting expandAll() fetch
+            # them level by level lays out the view again for each level, and
+            # adding rows under an expanded row costs the view per row too --
+            # so build them with everything collapsed.
+            self._tree.collapseAll()
+            self._populate_all(self._model.invisibleRootItem())
+            self._tree.expandAll()
+        finally:
+            QApplication.restoreOverrideCursor()
+
+    def _populate_all(self, parent: QStandardItem) -> None:
+        for row in range(parent.rowCount()):
+            item = parent.child(row, 0)
+            if item is not None:
+                self._populate_children(item)
+                self._populate_all(item)
 
     def _collapse_all(self) -> None:
         self._tree.collapseAll()
@@ -201,7 +376,31 @@ class TreeViewer(QWidget):
                 self._build_items(root, value, str(i), ())
         else:
             self._build_items(root, data, "value", ())
-        self._tree.expandToDepth(1)
+        self._expand_initially()
+
+    def _expand_initially(self) -> None:
+        """Expand the first levels (up to depth 1) as long as that builds at
+        most _INITIAL_EXPAND_ROWS rows in total, a whole level at a time: a
+        small tree opens as before, a large one (e.g. a JSON export's
+        top-level list of 500k records) opens collapsed instead of building
+        and expanding every record (issue #127). Nothing is left out: every
+        row stays one click away."""
+        budget = _INITIAL_EXPAND_ROWS
+        root = self._model.invisibleRootItem()
+        level = [root.child(row, 0) for row in range(root.rowCount())]
+        for _depth in range(2):
+            cost = sum(_child_row_count(item) for item in level)
+            if cost == 0 or cost > budget:
+                return
+            budget -= cost
+            # Build first, then expand: rows added under an expanded row
+            # cost the view per row.
+            for item in level:
+                self._populate_children(item)
+            for item in level:
+                if item.rowCount():
+                    self._tree.expand(self._model.indexFromItem(item))
+            level = [item.child(row, 0) for item in level for row in range(item.rowCount())]
 
     def _build_items(
         self,
@@ -210,75 +409,44 @@ class TreeViewer(QWidget):
         key: str,
         parent_path: tuple[str, ...],
     ) -> None:
+        """Append the row for *obj*. A container's own child rows are built
+        later, when first needed (_populate_children)."""
         node_path = parent_path + (key,)
-        type_name = type(obj).__name__
-
         if isinstance(obj, dict):
-            # Strip NSKeyedArchiver class metadata; surface classname in Type column
+            # Surface the NSKeyedArchiver classname in the Type column
             class_meta = obj.get("$class")
             classname = (
                 class_meta.get("$classname", "") if isinstance(class_meta, dict) else ""
             )
-            display_obj = {k: v for k, v in obj.items() if k not in ("$class", "$classes", "$classname")}
-            key_item = QStandardItem(str(key))
-            val_item = gen_item(
-                Gen(QT_TRANSLATE_NOOP("GeneratedView", "({count} keys)"), count=len(display_obj))
-            )
-            type_item = QStandardItem(classname if classname else "dict")
-            key_item.setData(_ObjRef(obj), _USER_ROLE)
-            self._apply_byte_range_metadata(key_item, node_path)
-            key_item.setEditable(False)
-            val_item.setEditable(False)
-            type_item.setEditable(False)
-            parent.appendRow([key_item, val_item, type_item])
-            for k, v in display_obj.items():
-                self._build_items(key_item, v, str(k), node_path)
-
-        elif isinstance(obj, (list, tuple)):
-            key_item = QStandardItem(str(key))
-            val_item = gen_item(
-                Gen(QT_TRANSLATE_NOOP("GeneratedView", "({count} items)"), count=len(obj))
-            )
-            type_item = QStandardItem(type_name)
-            key_item.setData(_ObjRef(obj), _USER_ROLE)
-            self._apply_byte_range_metadata(key_item, node_path)
-            key_item.setEditable(False)
-            val_item.setEditable(False)
-            type_item.setEditable(False)
-            parent.appendRow([key_item, val_item, type_item])
-            for i, v in enumerate(obj):
-                self._build_items(key_item, v, str(i), node_path)
-
-        elif isinstance(obj, bytes):
-            key_item = QStandardItem(str(key))
-            val_item = gen_item(
-                Gen(QT_TRANSLATE_NOOP("GeneratedView", "<BLOB {size:,} B>"), size=len(obj))
-            )
-            type_item = QStandardItem("bytes")
-            key_item.setData(_ObjRef(obj), _USER_ROLE)
-            self._apply_byte_range_metadata(key_item, node_path)
-            key_item.setEditable(False)
-            val_item.setEditable(False)
-            type_item.setEditable(False)
-            parent.appendRow([key_item, val_item, type_item])
-
+            type_name = classname if classname else "dict"
         else:
-            key_item = QStandardItem(str(key))
-            val_item = QStandardItem(str(obj))
-            if isinstance(obj, ParseIssue):
-                # A parser's note (e.g. in the Realm File Structure tree):
-                # shown in the UI language, copied in English.
-                shown = render(obj, localized=True)
-                val_item.setText(shown)
-                if shown != str(obj):
-                    val_item.setData(str(obj), EXPORT_TEXT_ROLE)
-            type_item = QStandardItem(type_name)
-            key_item.setData(_ObjRef(obj), _USER_ROLE)
-            self._apply_byte_range_metadata(key_item, node_path)
-            key_item.setEditable(False)
-            val_item.setEditable(False)
-            type_item.setEditable(False)
-            parent.appendRow([key_item, val_item, type_item])
+            type_name = type(obj).__name__
+
+        english, display = _value_texts(obj)
+        key_item = QStandardItem(str(key))
+        val_item = QStandardItem(display)
+        if display != english:
+            val_item.setData(english, EXPORT_TEXT_ROLE)
+        type_item = QStandardItem(type_name)
+        key_item.setData(_ObjRef(obj, node_path), _USER_ROLE)
+        self._apply_byte_range_metadata(key_item, node_path)
+        if _has_child_rows(obj):
+            key_item.setData(True, _PENDING_ROLE)
+        parent.appendRow([key_item, val_item, type_item])
+
+    def _populate_children(self, item: QStandardItem, *, apply_filter: bool = True) -> None:
+        """Build the child rows of container row *item* if not built yet.
+        With a filter active they're filtered like the rest of the tree."""
+        if not item.data(_PENDING_ROLE):
+            return
+        item.setData(None, _PENDING_ROLE)
+        ref = item.data(_USER_ROLE)
+        if not isinstance(ref, _ObjRef):
+            return
+        for key, value in _child_entries(ref.obj):
+            self._build_items(item, value, key, ref.path)
+        if apply_filter and self._filter_text:
+            self._filter_items(item, self._filter_text)
 
     def _apply_byte_range_metadata(
         self,
@@ -310,24 +478,39 @@ class TreeViewer(QWidget):
 
     def _apply_filter(self, text: str) -> None:
         """Show/hide rows whose key or value contains the search text."""
-        self._filter_items(self._model.invisibleRootItem(), text.lower())
+        self._filter_timer.stop()
+        self._filter_text = text.lower()
+        # Builds the rows of every hit not built yet -- on the UI thread, so a
+        # short search text on a large tree takes a while: say so.
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            self._filter_items(self._model.invisibleRootItem(), self._filter_text)
+        finally:
+            QApplication.restoreOverrideCursor()
 
-    def _filter_items(self, parent: QStandardItem, text: str) -> bool:
+    def _filter_items(
+        self, parent: QStandardItem, text: str, fp: _FilterPass | None = None
+    ) -> bool:
+        if fp is None:
+            fp = _FilterPass(text)
         any_visible = False
         for row in range(parent.rowCount()):
             key_item = parent.child(row, 0)
             val_item = parent.child(row, 1)
             if key_item is None:
                 continue
-            child_visible = self._filter_items(key_item, text)
+            if text and key_item.data(_PENDING_ROLE):
+                # Rows not built yet: build them only where there's a hit.
+                ref = key_item.data(_USER_ROLE)
+                if isinstance(ref, _ObjRef) and _subtree_matches(ref.obj, fp):
+                    self._populate_children(key_item, apply_filter=False)
+            child_visible = self._filter_items(key_item, text, fp)
             key_match = not text or text in key_item.text().lower()
             val_match = val_item and text in val_item.text().lower()
             visible = key_match or bool(val_match) or child_visible
-            self._tree.setRowHidden(
-                row,
-                self._model.indexFromItem(parent),
-                not visible,
-            )
+            # Taken after the rows below were built: a model index isn't
+            # guaranteed to survive a structural change.
+            self._tree.setRowHidden(row, self._model.indexFromItem(parent), not visible)
             any_visible = any_visible or visible
         return any_visible
 
