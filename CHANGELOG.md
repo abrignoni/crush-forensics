@@ -13,13 +13,14 @@ All notable changes to Crush will be documented in this file.
 ### Bug Fixes
 
 - Fixed an online-only cloud placeholder on NTFS (e.g. OneDrive Files On-Demand) reading as zeros of its recorded size; it is still listed, and reading it now says that its content is not in the image.
+- Fixed an NTFS-compressed file reading short when one of its compression units ends early; it now reads at its recorded length, with the rest of that unit as zeros.
 - Fixed a locked BitLocker volume not being named (one was shown as an empty FAT32 volume); opening it as a disk image now says it is BitLocker-encrypted and what would open it.
 
 ### Changed
 
 - Open Disk Image… names FTK Imager logical evidence (AD1) as logical evidence, as it does L01/Lx01.
 - Open Disk Image… also opens what the updated readers recognise by content: AFF4, Apple disk images (`.dmg`, `.sparseimage`), VHD, VHDX, VMDK and QCOW. An encrypted one is refused with the reason.
-- Bundled [qnxprobe](https://github.com/abrignoni/qnxprobe) updated to v1.56 (from v1.38) and [ewfprobe](https://github.com/abrignoni/ewfprobe) to v0.12.0 (from v0.2.0).
+- Bundled [qnxprobe](https://github.com/abrignoni/qnxprobe) updated to v1.57 (from v1.38) and [ewfprobe](https://github.com/abrignoni/ewfprobe) to v0.12.0 (from v0.2.0).
 
 ## v0.21.0 - 2026-09-30
 

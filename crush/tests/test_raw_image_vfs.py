@@ -1366,6 +1366,40 @@ class TestWindowsWrittenNtfs:
         finally:
             vfs.close()
 
+    @pytest.mark.forensic(
+        category="Known-output Verification",
+        subject="NTFS",
+        desc="An NTFS-compressed file of raw_ntfs_windows.img.gz, with one compression unit "
+             "changed to end at a zero chunk header, must read at its recorded length to the "
+             "SHA-256 The Sleuth Kit gave for the same changed image, the rest of that unit as "
+             "zeros",
+    )
+    def test_a_compression_unit_that_ends_early_reads_as_zeros_to_its_end(
+        self, raw_ntfs_windows: Path
+    ) -> None:
+        import hashlib
+
+        # lznt1/text_100000.txt is two compression units of two stored clusters each.
+        # The second begins at cluster 1548 of the volume, which begins at byte 65,536
+        # of the image, and Windows wrote f7 b1 there: the unit's first chunk header.
+        second_unit = 65536 + 1548 * 4096
+        data = bytearray(raw_ntfs_windows.read_bytes())
+        assert bytes(data[second_unit:second_unit + 2]) == b"\xf7\xb1"
+        data[second_unit:second_unit + 2] = b"\x00\x00"
+        raw_ntfs_windows.write_bytes(data)
+        vfs = open_vfs(raw_ntfs_windows, as_disk_image=True)
+        try:
+            node = _find(vfs.root().children[0], ["lznt1", "text_100000.txt"])
+            assert node is not None
+            content = vfs.read(node)
+        finally:
+            vfs.close()
+        assert len(content) == 100000
+        # icat (The Sleuth Kit 4.15.0) on the same changed image: the file's first
+        # 65,536 bytes, then 34,464 zeros
+        assert hashlib.sha256(content).hexdigest() == (
+            "2178bd1ed448997552310b525dd2f83a6049978b291fe6afd0f8cb4ee2cc40b1")
+
     def test_lzx_overlay_compression_is_named_not_read_as_zeros(
         self, raw_ntfs_windows: Path
     ) -> None:
