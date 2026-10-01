@@ -54,7 +54,7 @@ Once opened as a disk image, what it holds is recognised by its content — an M
 
 A GPT is used only when its header passes the checks in UEFI 2.10 section 5.3.2 (signature, header CRC32, MyLBA, CRC32 of the partition entry array); when the primary header fails, the backup header in the last block is read. A disk whose primary and backup GPT headers both fail these checks shows no partitions from that table.
 
-A **flash dump** (e.g. a `nanddump` of a router, camera or older Android phone) usually has no partition table. It is recognised by the SquashFS, UBI, JFFS2 or YAFFS structures it holds; NAND spare (OOB) bytes in the dump are detected and stripped by the reader, and the YAFFS page/spare layout is found by trying the common geometries.
+A **flash dump** (e.g. a `nanddump` of a router, camera or older Android phone) usually has no partition table. It is recognised by the SquashFS, UBI, JFFS2 or YAFFS structures it holds; NAND spare (OOB) bytes in the dump are detected and stripped by the reader, and the YAFFS page/spare layout is found by trying the common geometries. A U-Boot environment or a Belkin NVRAM store in the dump, which has no filesystem around it, is found by its CRC-32 and shown as a volume holding one file with the store's bytes.
 
 **zstd-compressed SquashFS/UBIFS** can only be read on Python 3.14 or newer, which current Crush builds don't use. Such a volume is identified but lists nothing; the volume's **Entry status** says so, so it doesn't look like an empty filesystem.
 
@@ -76,6 +76,14 @@ Content a file carries beside its own is listed as a node of its own, next to th
 - **HFS+ resource forks** and **APFS extended attributes kept in a stream of their own** are listed with their recorded size in the status, but not read: the underlying reader names them and has no reader for their content yet. APFS extended attributes stored inline, inside their record, are not listed.
 
 A stream is not part of the file's size, content or hash.
+
+### Files the volume does not hold in full
+
+On NTFS, a file's recorded size is not always what the volume stores for it:
+
+- **Online-only cloud placeholders** (e.g. OneDrive Files On-Demand) keep the file's name, size and dates on the volume and none of its content, which is with the provider. The file is listed at its recorded size, and reading it fails with the reader's reason instead of returning zeros of that size.
+- **Files compressed by the Windows overlay filter** (WOF: `compact /exe`, CompactOS) keep their content in a `WofCompressedData` stream and leave the file's own data stream as a hole. With XPRESS compression (4K, 8K and 16K chunks) the file shows its content. With LZX it is not decoded, and reading it fails with that reason.
+- **Sparse files** read at their recorded length, with zeros where the volume stores nothing, as the operating system would return them.
 
 ### Deleted files
 

@@ -75,6 +75,7 @@ WALKER_SUBJECTS: dict[str, tuple[str, ...]] = {
     "UbiWalker": ("UBI",),
     "UbifsWalker": ("UBIFS",),
     "YaffsWalker": ("YAFFS1/YAFFS2",),
+    "ConfigStoreWalker": ("U-Boot environment / NVRAM store",),
 }
 PARSER_SUBJECTS: dict[str, tuple[str, ...]] = {
     "SQLiteParser": ("SQLite database",),

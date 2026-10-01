@@ -15,7 +15,11 @@ from typing import Any
 
 import pytest
 
-from crush.core.raw_image import RawImageOpenError, RawImageTruncatedReadError
+from crush.core.raw_image import (
+    RawImageFileUnreadableError,
+    RawImageOpenError,
+    RawImageTruncatedReadError,
+)
 from crush.core.vfs import FileVFS, RawImageVFS, VFSNode, open_vfs
 from crush.tests.conftest import FIXTURES_DIR
 
@@ -1236,6 +1240,19 @@ class TestLogicalEvidence:
         finally:
             vfs.close()
 
+    def test_ad1_refused_as_disk_image(self, tmp_path: Path) -> None:
+        """FTK Imager's AD1 is logical evidence too, and is refused in Crush's
+        own words rather than with the reader's pointer to its command line."""
+        path = tmp_path / "evidence.ad1"
+        path.write_bytes(b"ADSEGMENTEDFILE\x00" + bytes(4096))
+        vfs = open_vfs(path, as_disk_image=True)
+        try:
+            assert isinstance(vfs, FileVFS)
+            assert "FTK Imager logical evidence (AD1)" in str(vfs.fallback_note)
+            assert "ewfprobe" not in str(vfs.fallback_note)
+        finally:
+            vfs.close()
+
     def test_named_on_a_normal_open(self, tmp_path: Path) -> None:
         path = tmp_path / "no_extension"
         path.write_bytes(b"LVF\x09\x0d\x0a\xff\x00" + bytes(4096))
@@ -1255,5 +1272,131 @@ def test_raw_image_without_a_filesystem_still_falls_back(tmp_path: Path) -> None
     vfs = open_vfs(path, as_disk_image=True)
     try:
         assert isinstance(vfs, FileVFS)
+    finally:
+        vfs.close()
+
+
+# ---------------------------------------------------------------------------
+# A volume Windows wrote (raw_ntfs_windows.img.gz, from qnxprobe, with what
+# Windows itself reported for each file: see raw_ntfs_windows_README.md)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def raw_ntfs_windows(tmp_path: Path) -> Path:
+    dst = tmp_path / "windows.img"
+    dst.write_bytes(gzip.decompress((FIXTURES_DIR / "raw_ntfs_windows.img.gz").read_bytes()))
+    return dst
+
+
+def _windows_answers() -> dict[str, tuple[int, str | None, str]]:
+    """path -> (length, SHA-256 or None, "read" or "refused"), as Windows
+    reported them."""
+    answers: dict[str, tuple[int, str | None, str]] = {}
+    text = (FIXTURES_DIR / "raw_ntfs_windows.known.tsv").read_text(encoding="utf-8")
+    for line in text.splitlines():
+        if not line or line.startswith("#"):
+            continue
+        path, length, _attrs, _on_disk, digest, windows = line.split("\t")
+        answers[path] = (int(length), None if digest == "-" else digest, windows)
+    return answers
+
+
+class TestWindowsWrittenNtfs:
+    """Files whose recorded size is not what the volume stores for them:
+    sparse, compressed, overlay-compressed, and online-only cloud placeholders."""
+
+    def test_the_answers_are_the_ones_these_tests_expect(self) -> None:
+        answers = _windows_answers()
+        assert len(answers) == 35
+        assert sum(1 for _n, _d, windows in answers.values() if windows == "refused") == 3
+        assert sum(1 for name in answers if name.startswith("wof/lzx/")) == 5
+
+    @pytest.mark.forensic(
+        category="Known-output Verification",
+        subject="NTFS",
+        desc="Every file of raw_ntfs_windows.img.gz that Windows hashed and the reader decodes "
+             "(sparse, NTFS-compressed, overlay-compressed with XPRESS) must read back to the "
+             "SHA-256 Windows itself reported",
+    )
+    def test_content_matches_what_windows_hashed(self, raw_ntfs_windows: Path) -> None:
+        import hashlib
+
+        answers = _windows_answers()
+        vfs = open_vfs(raw_ntfs_windows, as_disk_image=True)
+        try:
+            volume = vfs.root().children[0]
+            checked = 0
+            for name, (length, digest, _windows) in answers.items():
+                if digest is None or name.startswith("wof/lzx/"):
+                    continue
+                node = _find(volume, name.split("/"))
+                assert node is not None, f"missing from tree: {name}"
+                assert node.size == length, name
+                assert hashlib.sha256(vfs.read(node)).hexdigest() == digest, name
+                checked += 1
+            assert checked == 27
+        finally:
+            vfs.close()
+
+    @pytest.mark.forensic(
+        category="Known-output Verification",
+        subject="NTFS",
+        desc="The three online-only cloud placeholders of raw_ntfs_windows.img.gz, which Windows "
+             "itself refused to read, must be listed at their recorded size and refuse to read "
+             "with the reason, never read back as zeros",
+    )
+    def test_cloud_placeholders_are_listed_and_say_why_they_cannot_be_read(
+        self, raw_ntfs_windows: Path
+    ) -> None:
+        answers = _windows_answers()
+        refused = {name: length for name, (length, _d, windows) in answers.items()
+                   if windows == "refused"}
+        assert len(refused) == 3
+        vfs = open_vfs(raw_ntfs_windows, as_disk_image=True)
+        try:
+            volume = vfs.root().children[0]
+            for name, length in refused.items():
+                node = _find(volume, name.split("/"))
+                assert node is not None, f"missing from tree: {name}"
+                assert node.size == length, name
+                with pytest.raises(RawImageFileUnreadableError, match="online-only placeholder"):
+                    vfs.read(node)
+                with pytest.raises(RawImageFileUnreadableError, match="online-only placeholder"):
+                    vfs.peek(node, 32)
+        finally:
+            vfs.close()
+
+    def test_lzx_overlay_compression_is_named_not_read_as_zeros(
+        self, raw_ntfs_windows: Path
+    ) -> None:
+        """The reader decodes the overlay's XPRESS and not its LZX; a file
+        compressed with LZX says so instead of reading as its all-hole
+        unnamed stream."""
+        answers = _windows_answers()
+        vfs = open_vfs(raw_ntfs_windows, as_disk_image=True)
+        try:
+            volume = vfs.root().children[0]
+            lzx = [name for name in answers if name.startswith("wof/lzx/")]
+            for name in lzx:
+                node = _find(volume, name.split("/"))
+                assert node is not None, f"missing from tree: {name}"
+                with pytest.raises(RawImageFileUnreadableError, match="LZX"):
+                    vfs.read(node)
+        finally:
+            vfs.close()
+
+
+def test_locked_bitlocker_volume_says_what_would_open_it(tmp_path: Path) -> None:
+    """A BitLocker volume with no key is named by the reader and not read.
+    The fallback note passes the reader's reason on, instead of saying that
+    nothing was recognised."""
+    path = tmp_path / "locked.img"
+    path.write_bytes(gzip.decompress((FIXTURES_DIR / "raw_bitlocker_locked.img.gz").read_bytes()))
+    vfs = open_vfs(path, as_disk_image=True)
+    try:
+        assert isinstance(vfs, FileVFS)
+        note = str(vfs.fallback_note)
+        assert "BitLocker" in note and "recovery password" in note
+        assert "no partition table or recognized filesystem" not in note
     finally:
         vfs.close()

@@ -18,7 +18,7 @@ In the tables, a number is how many checks exist; **not tested** means there is 
 
 ## Overview
 
-166 checks in total.
+168 checks in total.
 
 ### Sources
 
@@ -43,7 +43,7 @@ In the tables, a number is how many checks exist; **not tested** means there is 
 
 | | Source Immutability | No Side Effects | Read-only Media | Known-output Verification | Completeness | Reproducibility |
 |---|---|---|---|---|---|---|
-| [NTFS](#ntfs) | not tested | not tested | not tested | 3 | not tested | not tested |
+| [NTFS](#ntfs) | not tested | not tested | not tested | 5 | not tested | not tested |
 | [FAT32](#fat32) | not tested | not tested | not tested | 1 | not tested | not tested |
 | [exFAT](#exfat) | not tested | not tested | not tested | 1 | not tested | not tested |
 | [ext2/3/4](#ext234) | not tested | not tested | not tested | not tested | not tested | not tested |
@@ -60,6 +60,7 @@ In the tables, a number is how many checks exist; **not tested** means there is 
 | [UBI](#ubi) | not tested | not tested | not tested | not tested | not tested | not tested |
 | [UBIFS](#ubifs) | not tested | not tested | not tested | not tested | not tested | not tested |
 | [YAFFS1/YAFFS2](#yaffs1yaffs2) | not tested | not tested | not tested | not tested | not tested | not tested |
+| [U-Boot environment / NVRAM store](#u-boot-environment--nvram-store) | not tested | not tested | not tested | not tested | not tested | not tested |
 
 ### File formats
 
@@ -205,6 +206,8 @@ No forensic checks.
 - **Known-output Verification** — raw_ntfs.img.gz's 475 live files must all read back to their committed reference hashes ([test_raw_image_vfs.py](../../crush/tests/test_raw_image_vfs.py), `test_single_volume_content_matches`)
 - **Known-output Verification** — Two deliberately deleted NTFS test files must recover to their pre-computed reference hashes ([test_raw_image_vfs.py](../../crush/tests/test_raw_image_vfs.py), `test_ntfs_recovers_known_deleted_files`)
 - **Known-output Verification** — Every alternate data stream of raw_ntfs_streams.img.gz that stores data must be listed beside its file and read back to The Sleuth Kit's reference hash ([test_raw_image_vfs.py](../../crush/tests/test_raw_image_vfs.py), `test_every_stream_matches_the_sleuth_kit`)
+- **Known-output Verification** — Every file of raw_ntfs_windows.img.gz that Windows hashed and the reader decodes (sparse, NTFS-compressed, overlay-compressed with XPRESS) must read back to the SHA-256 Windows itself reported ([test_raw_image_vfs.py](../../crush/tests/test_raw_image_vfs.py), `test_content_matches_what_windows_hashed`)
+- **Known-output Verification** — The three online-only cloud placeholders of raw_ntfs_windows.img.gz, which Windows itself refused to read, must be listed at their recorded size and refuse to read with the reason, never read back as zeros ([test_raw_image_vfs.py](../../crush/tests/test_raw_image_vfs.py), `test_cloud_placeholders_are_listed_and_say_why_they_cannot_be_read`)
 - *Not tested:* Source Immutability, No Side Effects, Read-only Media, Completeness, Reproducibility
 
 #### FAT32
@@ -270,6 +273,10 @@ No forensic checks.
 No forensic checks.
 
 #### YAFFS1/YAFFS2
+
+No forensic checks.
+
+#### U-Boot environment / NVRAM store
 
 No forensic checks.
 

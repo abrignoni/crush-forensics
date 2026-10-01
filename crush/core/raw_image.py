@@ -61,7 +61,8 @@ class RawImageHandle:
     size: int
     volumes: list[dict[str, Any]]
     # ewfprobe's name for the container ("EWF-E01", "EWF-S01", "EWF2-Ex01",
-    # "AFF", "AFD"), None for a raw image or split set.
+    # "AFF", "AFD", and since ewfprobe 0.12 "AFF4", "UDIF", "SPARSEIMAGE",
+    # "VHD", "VHDX", "VMDK", "QCOW"), None for a raw image or split set.
     acquisition: str | None = None
 
     @property
@@ -130,10 +131,11 @@ def open_raw_image(path: Path) -> RawImageHandle:
     partition table or bare filesystem could be found at all.
     """
     kind = qnxprobe.acquisition_format(str(path))  # type: ignore[no-untyped-call]
-    if kind in ("L01", "Lx01"):
+    if kind in ("L01", "Lx01", "AD1"):
         # qnxprobe refuses these too, but points to its own command line.
+        maker = "FTK Imager" if kind == "AD1" else "EnCase"
         raise RawImageOpenError(
-            f"{path.name}: EnCase logical evidence ({kind}) holds copies of files, "
+            f"{path.name}: {maker} logical evidence ({kind}) holds copies of files, "
             "not a disk, so there is no partition table or filesystem to read; "
             "Crush doesn't open logical evidence yet"
         )
@@ -164,6 +166,16 @@ def open_raw_image(path: Path) -> RawImageHandle:
     # unrecognised region qnxprobe reports -- readable, and verifiable.
     if not kind and not any(vol.get("walker") is not None for vol in vols):
         image.close()
+        # A volume the reader names but cannot read says why in its note (a
+        # locked BitLocker volume: what would open it). Passing that on beats
+        # saying nothing was recognised, which would not be true.
+        reasons = [
+            f"{vol.get('name') or 'volume'} is {vol['kind']}: {vol['note']}"
+            for vol in vols
+            if vol.get("note") and vol.get("kind") not in (None, "", "not recognised")
+        ]
+        if reasons:
+            raise RawImageOpenError(f"{path.name}: no readable filesystem ({'; '.join(reasons)})")
         raise RawImageOpenError(
             f"{path.name}: no partition table or recognized filesystem found"
         )

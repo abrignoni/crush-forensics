@@ -104,6 +104,7 @@ SUBJECT_GROUPS: dict[str, tuple[str, ...]] = {
         "UBI",
         "UBIFS",
         "YAFFS1/YAFFS2",
+        "U-Boot environment / NVRAM store",
     ),
     "File formats": (
         "SQLite database",
