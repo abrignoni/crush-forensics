@@ -695,6 +695,37 @@ class TestDiskImageKeyDialog:
         assert ok.isEnabled()
         assert dialog.private_key() == "/keys/k.pem"
 
+    def test_wide_enough_for_the_reason_without_resizing(self, qapp: object) -> None:
+        """The reader's reason (often with a path in it) must not be broken
+        into a narrow column the analyst has to widen every time."""
+        from crush.ui.disk_image_key_dialog import _MIN_WIDTH_CHARS, DiskImageKeyDialog
+
+        dialog = DiskImageKeyDialog(
+            reason="Disk image is encrypted: /evidence/case/x.sparseimage — x.sparseimage is "
+                   "an encrypted Apple disk image and opens only with its password",
+            was_wrong=True,
+        )
+        expected = dialog.fontMetrics().averageCharWidth() * _MIN_WIDTH_CHARS
+        assert dialog.minimumWidth() == expected
+        assert dialog.width() >= expected
+
+    def test_a_retry_asks_the_way_the_first_prompt_did(self) -> None:
+        """A rejected key for an image sealed only to a certificate asks for
+        the key again, not for a password as well; an image that opens with
+        a password keeps both fields."""
+        from crush.ui.main_window import _disk_image_retry_needs
+
+        needs, memo = _disk_image_retry_needs(None, "/x.dmg", False, "private key")
+        assert needs == "private key"
+        needs, memo = _disk_image_retry_needs(memo, "/x.dmg", True, "password")
+        assert needs == "private key"
+        needs, memo = _disk_image_retry_needs(None, "/y.aff", False, "password")
+        needs, memo = _disk_image_retry_needs(memo, "/y.aff", True, "password")
+        assert needs == "password"
+        # another image starts afresh
+        needs, _ = _disk_image_retry_needs(("/x.dmg", "private key"), "/z.dmg", True, "password")
+        assert needs == "password"
+
     def test_certificate_only_offers_only_the_key(self, qapp: object) -> None:
         from crush.ui.disk_image_key_dialog import DiskImageKeyDialog
 
