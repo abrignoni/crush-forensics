@@ -10,8 +10,8 @@ All notable changes to Crush will be documented in this file.
 - Added to raw disk images -> Support for NTFS files compressed by the Windows overlay filter (WOF) with XPRESS. ([@abrignoni](https://github.com/abrignoni), [#138](https://github.com/kalink0/crush-forensics/pull/138))
 - Added to raw disk images -> Support for U-Boot environments and Belkin NVRAM stores in flash dumps. ([@abrignoni](https://github.com/abrignoni), [#138](https://github.com/kalink0/crush-forensics/pull/138))
 - Added to Open Disk Image… -> Support for AFF4, Apple disk images and VHD, VHDX, VMDK and QCOW virtual disks. ([@abrignoni](https://github.com/abrignoni), [#138](https://github.com/kalink0/crush-forensics/pull/138))
-- Added to Open Disk Image… -> Support for encrypted containers, opened with a password or a private key. ([@abrignoni](https://github.com/abrignoni), [#138](https://github.com/kalink0/crush-forensics/pull/138))
-- Added to Verify Acquisition Hash -> Support for the container's own checksums. ([@abrignoni](https://github.com/abrignoni), [#138](https://github.com/kalink0/crush-forensics/pull/138))
+- Added to Open Disk Image… -> Support for encrypted containers, opened with a password or a private key. ([#138](https://github.com/kalink0/crush-forensics/pull/138))
+- Added to Verify Acquisition Hash -> Support for the container's own checksums. ([#138](https://github.com/kalink0/crush-forensics/pull/138))
 
 ### Bug Fixes
 
