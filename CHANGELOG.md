@@ -20,6 +20,8 @@ All notable changes to Crush will be documented in this file.
 ### Changed
 
 - Open Disk Image… names FTK Imager logical evidence (AD1) as logical evidence, as it does L01/Lx01. ([@abrignoni](https://github.com/abrignoni), [#138](https://github.com/kalink0/crush-forensics/pull/138))
+- A hint that the opened file opens otherwise (as a disk image, a ZIP, an archive) is shown as a banner above it, with a button to open it that way, not only in the status bar.
+- Verify Acquisition Hash shows each hash and check in a block of its own, the computed value green when it matches and red when it doesn't.
 - An opened container names the files its disk is read from and what decrypted it; opened normally, a container points at Open Disk Image… or asks to open as one. ([#138](https://github.com/kalink0/crush-forensics/pull/138))
 - Bundled [qnxprobe](https://github.com/abrignoni/qnxprobe) updated to v1.57 (from v1.38) and [ewfprobe](https://github.com/abrignoni/ewfprobe) to v0.12.0 (from v0.2.0). ([@abrignoni](https://github.com/abrignoni), [#138](https://github.com/kalink0/crush-forensics/pull/138))
 

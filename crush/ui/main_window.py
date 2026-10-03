@@ -12,7 +12,8 @@ import subprocess
 import sys
 import uuid
 from pathlib import Path
-from typing import Any, cast
+from dataclasses import dataclass
+from typing import Any, Callable, Literal, cast
 import logging
 import shutil
 import tempfile
@@ -1562,9 +1563,14 @@ class MainWindow(QMainWindow):
             else:
                 result = parser.parse(node, vfs)
             result = self._enrich_with_format_info(parser, node, vfs, result)
-            self._show_result(node, result, vfs)
-            self._props_panel.update_properties(node, result.metadata, vfs)
             possibly_encrypted = result.metadata.get("Possibly Encrypted")
+            hint_text, hint_banner = "", None
+            if not possibly_encrypted:
+                hint_text, hint_banner = self._open_otherwise_hint(
+                    node, vfs, probe_archive=isinstance(parser, HexFallbackParser),
+                )
+            self._show_result(node, result, vfs, hint_banner=hint_banner)
+            self._props_panel.update_properties(node, result.metadata, vfs)
             if possibly_encrypted:
                 # A normal double-click never auto-prompts for a password (see
                 # pdf_parser.py / realm_parser.py), but that shouldn't mean the
@@ -1575,15 +1581,8 @@ class MainWindow(QMainWindow):
                 )
             else:
                 message = f"{node.path}  [{parser.DISPLAY_NAME}]"  # i18n: keep -- markup/layout only
-                fallback_note = getattr(vfs, "fallback_note", "")
-                if fallback_note:
-                    message += f"  — {render_value(fallback_note, localized=True)}"  # i18n: keep -- layout
-                else:
-                    hint = _open_as_source_hint(
-                        node, vfs, probe_archive=isinstance(parser, HexFallbackParser),
-                    )
-                    if hint:
-                        message += f"  — {hint}"
+                if hint_text:
+                    message += f"  — {hint_text}"  # i18n: keep -- layout
                 self._status.showMessage(message)
         except Exception as exc:
             self._status.showMessage(translate("MainWindow", "Parse error: {exc}").format(exc=i18n.exception_text(exc)))
@@ -1822,6 +1821,7 @@ class MainWindow(QMainWindow):
         """
         from crush.core.vfs import RawImageVFS
         from crush.ui.busy_dialog import run_with_busy_dialog
+        from crush.ui.verify_result_dialog import VerifyResultDialog, verify_report_html
 
         if not isinstance(vfs, RawImageVFS):
             return
@@ -1832,7 +1832,6 @@ class MainWindow(QMainWindow):
 
         def _on_done(result: object) -> None:
             stored: dict[str, str] = result.get("stored") or {}  # type: ignore[attr-defined]
-            computed: dict[str, str] = result.get("computed") or {}  # type: ignore[attr-defined]
             match = result.get("match")  # type: ignore[attr-defined]
             checksum_errors = result.get("checksum_errors") or []  # type: ignore[attr-defined]
             missing_pages = result.get("missing_page_count") or 0  # type: ignore[attr-defined]
@@ -1860,35 +1859,7 @@ class MainWindow(QMainWindow):
                 findings.append(translate(
                     "MainWindow", "{count} of the container's own checks do not match."
                 ).format(count=f"{len(container_bad):,}"))
-            extra = ("\n\n" + "\n".join(findings)) if findings else ""
-            if container_checks:
-                extra += "\n\n" + translate("MainWindow", "The container's own checks:") + "\n"
-                extra += "\n".join(
-                    translate(
-                        "MainWindow", "{what} ({algorithm}): stored {stored}, computed {computed}"
-                    ).format(
-                        what=c.get("what"), algorithm=c.get("algorithm"),
-                        stored=c.get("stored"), computed=c.get("computed"),
-                    )
-                    + ("" if c.get("match") else "  " + translate("MainWindow", "MISMATCH"))
-                    for c in container_checks
-                )
             if not stored:
-                # This project's standing rule: never let an unverifiable
-                # result look like a silent success — say plainly that
-                # there was nothing to compare against.
-                show = QMessageBox.warning if findings else QMessageBox.information
-                show(
-                    self, title,
-                    (
-                        translate("MainWindow", "This acquisition recorded no hash of the whole "
-                                  "disk to verify against.")
-                        if container_checks else
-                        translate("MainWindow", "This acquisition recorded no hash to verify "
-                                  "against.")
-                    )
-                    + extra,
-                )
                 if container_checks:
                     tag = (
                         translate("MainWindow", "{path}  [verify: no stored hash, container "
@@ -1899,51 +1870,23 @@ class MainWindow(QMainWindow):
                     )
                 else:
                     tag = translate("MainWindow", "{path}  [verify: no stored hash]")
-                self._status.showMessage(tag.format(path=node.path))
-                return
-            lines = [f"{name}: {digest}" for name, digest in sorted(stored.items())]
-            if match:
-                show = QMessageBox.warning if findings else QMessageBox.information
-                show(
-                    self, title,
-                    translate(
-                        "MainWindow",
-                        "MATCH — the acquisition's own recorded hash matches its data:",
-                    )
-                    + "\n\n"
-                    + "\n".join(lines)
-                    + extra,
-                )
-                self._status.showMessage(
-                    (
-                        translate("MainWindow", "{path}  [verify: MATCH, container check "
-                                  "MISMATCH]")
-                        if container_bad else
-                        translate("MainWindow", "{path}  [verify: MATCH]")
-                    ).format(path=node.path)
+            elif match:
+                tag = (
+                    translate("MainWindow", "{path}  [verify: MATCH, container check "
+                              "MISMATCH]")
+                    if container_bad else
+                    translate("MainWindow", "{path}  [verify: MATCH]")
                 )
             else:
-                mismatches = [
-                    translate(
-                        "MainWindow", "{name}: stored {stored} != computed {computed}"
-                    ).format(name=name, stored=stored.get(name), computed=computed.get(name))
-                    for name in stored
-                    if stored.get(name) != computed.get(name)
-                ]
-                QMessageBox.warning(
-                    self, title,
-                    translate(
-                        "MainWindow",
-                        "MISMATCH — the acquisition's data does not match its own recorded "
-                        "hash:",
-                    )
-                    + "\n\n"
-                    + "\n".join(mismatches)
-                    + extra,
-                )
-                self._status.showMessage(
-                    translate("MainWindow", "{path}  [verify: MISMATCH]").format(path=node.path)
-                )
+                tag = translate("MainWindow", "{path}  [verify: MISMATCH]")
+            self._status.showMessage(tag.format(path=node.path))
+            # One block per check, stored and recomputed value on lines of
+            # their own; "no hash recorded" is said plainly, never shown as
+            # a silent success.
+            VerifyResultDialog(
+                self, title,
+                verify_report_html(result, findings),  # type: ignore[arg-type]
+            ).exec()
 
         def _on_error(message: str) -> None:
             QMessageBox.warning(
@@ -3134,7 +3077,93 @@ class MainWindow(QMainWindow):
         layout.addWidget(view)
         return container
 
-    def _show_result(self, node: VFSNode, result: ParseResult, vfs: VFS) -> None:
+    def _open_otherwise_hint(
+        self, node: VFSNode, vfs: VFS, *, probe_archive: bool
+    ) -> tuple[str, _HintBanner | None]:
+        """What the status bar says about how this file or its source opens
+        otherwise (the source's fallback_note, else _open_as_source_hint),
+        and the banner for it: only when the note is about the opened file
+        itself -- a note about a whole source (an AFF4 shown as its ZIP, a
+        sparse bundle shown as its folder) would repeat on every file opened
+        from it, and stays in the status bar. ("", None) when there is
+        nothing to say."""
+        buttons: list[tuple[str, Callable[[], None]]] = []
+        fallback_note = getattr(vfs, "fallback_note", "")
+        if fallback_note:
+            text = render_value(fallback_note, localized=True)
+            if not isinstance(vfs, FileVFS):
+                return text, None
+            # The file opens otherwise: added to this window, as Open Disk
+            # Image… / Open file… would load it.
+            image_path = vfs.disk_image_path
+            if image_path is not None:
+                buttons.append((
+                    translate("MainWindow", "Open as Disk Image"),
+                    lambda: self._load_source(
+                        str(image_path), open_after_load=True, append_to_tree=True,
+                        as_disk_image=True,
+                    ),
+                ))
+            zip_path = vfs.embedded_zip_path
+            if zip_path is not None:
+                buttons.append((
+                    translate("MainWindow", "Open the ZIP Archive"),
+                    lambda: self._load_source(
+                        str(zip_path), open_after_load=True, append_to_tree=True,
+                        embedded_zip=True,
+                    ),
+                ))
+            return text, (text, buttons)
+        hint = _source_hint(node, vfs, probe_archive=probe_archive)
+        if hint is None:
+            return "", None
+        if hint.action == "browse":
+            buttons.append((
+                translate("FilesystemPanel", "Open in New Window"),
+                lambda: self._open_in_new_window(node, vfs),
+            ))
+        elif hint.action == "disk_image":
+            buttons.append((
+                translate("FilesystemPanel", "Open Disk Image in New Window"),
+                lambda: self._open_in_new_window(node, vfs, as_disk_image=True),
+            ))
+        return hint.text, (hint.text, buttons)
+
+    def _wrap_with_hint_banner(self, view: QWidget, banner_spec: _HintBanner) -> QWidget:
+        """Prepend a banner above *view* with the status bar's hint on how
+        this file opens otherwise, and a button for each way offered -- as
+        the encryption banner does, the hint is in the tab itself rather
+        than only in the status bar, where it is easy to miss."""
+        text, buttons = banner_spec
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        bar = QWidget()
+        bar.setObjectName("source_hint_banner")
+        bar.setStyleSheet(
+            "#source_hint_banner { background-color: #2d6aa3; }"
+            " #source_hint_banner QLabel { color: white; font-weight: bold; }"
+        )
+        row = QHBoxLayout(bar)
+        row.setContentsMargins(10, 6, 10, 6)
+        label = QLabel(text)
+        label.setTextFormat(Qt.TextFormat.PlainText)
+        label.setWordWrap(True)
+        label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        row.addWidget(label, 1)
+        for caption, callback in buttons:
+            button = QPushButton(caption)
+            button.clicked.connect(lambda _checked=False, cb=callback: cb())
+            row.addWidget(button)
+        layout.addWidget(bar)
+        layout.addWidget(view)
+        return container
+
+    def _show_result(
+        self, node: VFSNode, result: ParseResult, vfs: VFS,
+        hint_banner: _HintBanner | None = None,
+    ) -> None:
         from crush.ui.viewer_factory import make_viewer
         base_view = make_viewer(result, node, vfs, self)
         if hasattr(base_view, "open_bytes_requested"):
@@ -3154,6 +3183,8 @@ class MainWindow(QMainWindow):
         possibly_encrypted = result.metadata.get("Possibly Encrypted")
         if possibly_encrypted:
             base_view = self._wrap_with_encryption_banner(base_view, possibly_encrypted)
+        elif hint_banner is not None:
+            base_view = self._wrap_with_hint_banner(base_view, hint_banner)
         widget: QWidget = base_view
         if self._always_hex:
             hex_bytes = self._read_hex_bytes(vfs, node)
@@ -4755,28 +4786,49 @@ def _peeked_archive_kind(node: VFSNode, vfs: VFS) -> str | None:
         return None
 
 
+# A hint banner: the text, and a (caption, callback) per way offered.
+_HintBanner = tuple[str, list[tuple[str, Callable[[], None]]]]
+
+
+@dataclass(frozen=True)
+class _SourceHint:
+    """How a file opens otherwise: the hint's text, and the action it
+    points at ("browse": Open in New Window, "disk_image": Open Disk Image
+    in New Window, None: nothing Crush can open it with)."""
+
+    text: str
+    action: Literal["browse", "disk_image"] | None
+
+
 def _open_as_source_hint(node: VFSNode, vfs: VFS, *, probe_archive: bool) -> str:
-    """Status-bar hint that this file can be browsed via Open in New Window
-    (decided by content), or read via Open Disk Image in New Window (a
-    hint from its name or acquisition signature); "" when there is nothing to say.
+    """Status-bar text of _source_hint; "" when there is nothing to say."""
+    hint = _source_hint(node, vfs, probe_archive=probe_archive)
+    return hint.text if hint is not None else ""
+
+
+def _source_hint(node: VFSNode, vfs: VFS, *, probe_archive: bool) -> _SourceHint | None:
+    """Hint that this file can be browsed via Open in New Window (decided
+    by content), or read via Open Disk Image in New Window (a hint from its
+    name or container content); None when there is nothing to say.
     *probe_archive* runs the (costlier) bzip2/xz-TAR check on an on-disk
     file."""
     if node.is_dir or isinstance(vfs, FileVFS):
-        return ""
+        return None
     if _peeked_archive_kind(node, vfs) is not None:
-        return _browse_hint()
+        return _SourceHint(_browse_hint(), "browse")
     if isinstance(vfs, DirectoryVFS):
         from crush.core.vfs import is_browsable_source_file, zip_leading_bytes
 
         leading = zip_leading_bytes(node.path)
         if leading is not None:
-            return translate(
+            # Open in New Window opens the ZIP after the leading bytes.
+            return _SourceHint(translate(
                 "MainWindow",
                 "contains a ZIP archive after {leading:,} leading bytes — "
                 "right-click → Open in New Window to browse it",
-            ).format(leading=leading)
+            ).format(leading=leading), "browse")
         if probe_archive and is_browsable_source_file(node.path):
-            return _browse_hint()
+            return _SourceHint(_browse_hint(), "browse")
     return _disk_image_hint(node, vfs)
 
 
@@ -4795,7 +4847,7 @@ def _regular_file_path(node: VFSNode, vfs: VFS) -> Path | None:
         return None
 
 
-def _disk_image_hint(node: VFSNode, vfs: VFS) -> str:
+def _disk_image_hint(node: VFSNode, vfs: VFS) -> _SourceHint | None:
     """A disk image is never probed for (see open_vfs); a file whose name or
     container content says it is one gets pointed at the explicit action.
     Logical evidence isn't one, and says so. A file in an opened folder is
@@ -4808,17 +4860,17 @@ def _disk_image_hint(node: VFSNode, vfs: VFS) -> str:
     except (OSError, ValueError):
         head = b""
     if is_logical_evidence(head):
-        return translate(
+        return _SourceHint(translate(
             "MainWindow",
             "logical evidence (EnCase L01/Lx01 or FTK Imager AD1) — holds copies of files, "
             "not a disk; Crush doesn't open logical evidence yet",
-        )
+        ), None)
     if looks_like_disk_image(node.name, head, _regular_file_path(node, vfs)):
-        return translate(
+        return _SourceHint(translate(
             "MainWindow",
             "looks like a disk image — right-click → Open Disk Image in New Window to read it",
-        )
-    return ""
+        ), "disk_image")
+    return None
 
 
 def _can_open_as_source(node: VFSNode, vfs: VFS) -> bool | None:

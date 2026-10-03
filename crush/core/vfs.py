@@ -232,6 +232,14 @@ class VFS(ABC):
     # Said once when the source is loaded, not with every file opened from
     # it (e.g. that reading may update the evidence files' access times).
     load_note: str | ParseIssue = ""
+    # Set by open_vfs() alongside fallback_note on a file opened as a single
+    # file: the file, when its content says it is a disk image, for Open
+    # Disk Image… -- a hint, never a probe. Not set after Open Disk Image…
+    # itself failed on it.
+    disk_image_path: Path | None = None
+    # Likewise: the file, when it holds a ZIP after leading bytes, which
+    # opens as that ZIP only when asked (embedded_zip).
+    embedded_zip_path: Path | None = None
 
     @abstractmethod
     def root(self) -> VFSNode: ...
@@ -2645,6 +2653,7 @@ def _open_vfs(
     label = _NAMED_ARCHIVES.get(p.suffix.lower())
     if label is not None and kind is None and not notes:
         notes.append(ParseIssue("vfs.named_but_not", {"suffix": p.suffix.lower(), "label": label}))
+    leading: int | None = None
     if kind is None:
         leading = zip_leading_bytes(p)
         if leading is not None:
@@ -2664,6 +2673,10 @@ def _open_vfs(
         notes.append(hint)
     vfs = FileVFS(p)
     vfs.fallback_note = join_notes(notes)
+    if hint and not is_logical_evidence(head):
+        vfs.disk_image_path = p
+    if leading is not None and not embedded_zip:
+        vfs.embedded_zip_path = p
     return vfs
 
 
