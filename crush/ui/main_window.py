@@ -12,7 +12,7 @@ import subprocess
 import sys
 import uuid
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 import logging
 import shutil
 import tempfile
@@ -75,9 +75,11 @@ from crush.ui.i18n import translate
 class _LoadSourceWorker(QObject):
     finished = Signal(object)
     failed = Signal(str, str)  # (English for the log, shown in the UI language)
-    # (was_wrong, reason): was_wrong = a previously supplied password was
-    # rejected; reason = why, as the source reported it ("" if none).
-    password_required = Signal(bool, str)
+    # (was_wrong, reason, needs): was_wrong = a previously supplied password
+    # or key was rejected; reason = why, as the source reported it ("" if
+    # none); needs = "password", or "private key" for a source sealed only
+    # to a certificate.
+    password_required = Signal(bool, str, str)
 
     def __init__(
         self,
@@ -89,6 +91,7 @@ class _LoadSourceWorker(QObject):
         window_id: str | None = None,
         embedded_zip: bool = False,
         as_disk_image: bool = False,
+        private_key: str = "",
     ) -> None:
         super().__init__()
         self._session = session
@@ -99,13 +102,18 @@ class _LoadSourceWorker(QObject):
         self._window_id = window_id
         self._embedded_zip = embedded_zip
         self._as_disk_image = as_disk_image
+        self._private_key = private_key
 
     def run(self) -> None:
         with window_log_scope(self._window_id):
             self._run()
 
     def _run(self) -> None:
-        from crush.core.passwords import PasswordRequiredError, WrongPasswordError
+        from crush.core.passwords import (
+            PasswordRequiredError,
+            PrivateKeyRequiredError,
+            WrongPasswordError,
+        )
 
         try:
             if self._itunes_zip_prefix is not None:
@@ -119,15 +127,22 @@ class _LoadSourceWorker(QObject):
             else:
                 vfs = self._session.add_source(
                     self._path, password=self._password, embedded_zip=self._embedded_zip,
-                    as_disk_image=self._as_disk_image,
+                    as_disk_image=self._as_disk_image, private_key=self._private_key,
                 )
             if self._integrity:
                 self._log_source_hash()
         except WrongPasswordError as exc:
-            self.password_required.emit(True, i18n.exception_text(exc))
+            # A rejection doesn't say whether the source also opens the other
+            # way, so the retry offers both; "private key" only when the
+            # source itself says nothing else opens it (below).
+            self.password_required.emit(True, i18n.exception_text(exc), "password")
             return
-        except PasswordRequiredError:
-            self.password_required.emit(False, "")
+        except PasswordRequiredError as exc:
+            needs = "private key" if isinstance(exc, PrivateKeyRequiredError) else "password"
+            # A disk image says what it is and what opens it; the other
+            # sources' prompt says that already.
+            reason = i18n.exception_text(exc) if self._as_disk_image else ""
+            self.password_required.emit(False, reason, needs)
             return
         except Exception as exc:
             self.failed.emit(str(exc), i18n.exception_text(exc))
@@ -1017,14 +1032,19 @@ class MainWindow(QMainWindow):
         focus_path: str | None = None,
         embedded_zip: bool = False,
         as_disk_image: bool = False,
+        private_key: str = "",
     ) -> None:
         if not as_disk_image and itunes_zip_prefix is None and _is_zip_file(path):
             itunes_zip_prefix = self._maybe_confirm_itunes_backup_zip(path)
+            if itunes_zip_prefix is None:
+                as_disk_image = self._confirm_aff4_as_disk_image(path)
+        elif not as_disk_image and Path(path).is_dir():
+            as_disk_image = self._confirm_sparse_bundle_as_disk_image(path)
 
         if self._thread_is_running(getattr(self, "_load_thread", None)):
             self._load_queue.append(
                 (path, open_after_load, append_to_tree, itunes_zip_prefix, password, focus_path,
-                 embedded_zip, as_disk_image)
+                 embedded_zip, as_disk_image, private_key)
             )
             self._status.showMessage(translate("MainWindow", "Queued source for loading…"))
             self._logger.debug("Load queued: %s (open_after_load=%s append=%s)", path, open_after_load, append_to_tree)
@@ -1036,6 +1056,7 @@ class MainWindow(QMainWindow):
         self._loading_itunes_zip_prefix = itunes_zip_prefix
         self._loading_embedded_zip = embedded_zip
         self._loading_as_disk_image = as_disk_image
+        self._loading_focus_path = focus_path
         self._open_after_load = open_after_load
         self._append_to_tree = append_to_tree
         self._pending_focus_path = focus_path
@@ -1048,6 +1069,7 @@ class MainWindow(QMainWindow):
         self._load_worker = _LoadSourceWorker(
             self.session, path, self.session.integrity_mode, itunes_zip_prefix, password,
             window_id=self._window_id, embedded_zip=embedded_zip, as_disk_image=as_disk_image,
+            private_key=private_key,
         )
         self._load_worker.moveToThread(self._load_thread)
         self._load_thread.started.connect(self._load_worker.run)
@@ -1175,10 +1197,18 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(
                 self,
                 translate("MainWindow", "Open Disk Image"),
-                translate(
-                    "MainWindow",
-                    "{name} could not be read as a disk image and was opened as a "
-                    "single file instead.\n\n{reason}",
+                (
+                    translate(
+                        "MainWindow",
+                        "{name} could not be read as a disk image and was opened as a "
+                        "folder instead.\n\n{reason}",
+                    )
+                    if Path(self._loading_path).is_dir() else
+                    translate(
+                        "MainWindow",
+                        "{name} could not be read as a disk image and was opened as a "
+                        "single file instead.\n\n{reason}",
+                    )
                 ).format(
                     name=Path(self._loading_path).name,
                     reason=render_value(getattr(loaded_vfs, "fallback_note", ""), localized=True),
@@ -1819,7 +1849,30 @@ class MainWindow(QMainWindow):
                     "{count} page(s) are not in the acquisition's files; they read as the "
                     "bad-sector marker.",
                 ).format(count=f"{missing_pages:,}"))
+            # What a container records about its own data besides a hash of
+            # the disk (a UDIF image's checksums, an AFF4's stream, chunk and
+            # map hashes), recomputed by the reader -- every one listed.
+            container_checks: list[dict[str, Any]] = (
+                result.get("container_checks") or []  # type: ignore[attr-defined]
+            )
+            container_bad = [c for c in container_checks if not c.get("match")]
+            if container_bad:
+                findings.append(translate(
+                    "MainWindow", "{count} of the container's own checks do not match."
+                ).format(count=f"{len(container_bad):,}"))
             extra = ("\n\n" + "\n".join(findings)) if findings else ""
+            if container_checks:
+                extra += "\n\n" + translate("MainWindow", "The container's own checks:") + "\n"
+                extra += "\n".join(
+                    translate(
+                        "MainWindow", "{what} ({algorithm}): stored {stored}, computed {computed}"
+                    ).format(
+                        what=c.get("what"), algorithm=c.get("algorithm"),
+                        stored=c.get("stored"), computed=c.get("computed"),
+                    )
+                    + ("" if c.get("match") else "  " + translate("MainWindow", "MISMATCH"))
+                    for c in container_checks
+                )
             if not stored:
                 # This project's standing rule: never let an unverifiable
                 # result look like a silent success — say plainly that
@@ -1827,14 +1880,26 @@ class MainWindow(QMainWindow):
                 show = QMessageBox.warning if findings else QMessageBox.information
                 show(
                     self, title,
-                    translate("MainWindow", "This acquisition recorded no hash to verify against.")
+                    (
+                        translate("MainWindow", "This acquisition recorded no hash of the whole "
+                                  "disk to verify against.")
+                        if container_checks else
+                        translate("MainWindow", "This acquisition recorded no hash to verify "
+                                  "against.")
+                    )
                     + extra,
                 )
-                self._status.showMessage(
-                    translate("MainWindow", "{path}  [verify: no stored hash]").format(
-                        path=node.path
+                if container_checks:
+                    tag = (
+                        translate("MainWindow", "{path}  [verify: no stored hash, container "
+                                  "check MISMATCH]")
+                        if container_bad else
+                        translate("MainWindow", "{path}  [verify: no stored hash, container "
+                                  "checks match]")
                     )
-                )
+                else:
+                    tag = translate("MainWindow", "{path}  [verify: no stored hash]")
+                self._status.showMessage(tag.format(path=node.path))
                 return
             lines = [f"{name}: {digest}" for name, digest in sorted(stored.items())]
             if match:
@@ -1850,7 +1915,12 @@ class MainWindow(QMainWindow):
                     + extra,
                 )
                 self._status.showMessage(
-                    translate("MainWindow", "{path}  [verify: MATCH]").format(path=node.path)
+                    (
+                        translate("MainWindow", "{path}  [verify: MATCH, container check "
+                                  "MISMATCH]")
+                        if container_bad else
+                        translate("MainWindow", "{path}  [verify: MATCH]")
+                    ).format(path=node.path)
                 )
             else:
                 mismatches = [
@@ -3566,7 +3636,7 @@ class MainWindow(QMainWindow):
         if self._load_queue:
             (
                 path, open_after_load, append_to_tree, itunes_zip_prefix, password, focus_path,
-                embedded_zip, as_disk_image,
+                embedded_zip, as_disk_image, private_key,
             ) = self._load_queue.pop(0)
             self._load_source(
                 path,
@@ -3577,11 +3647,18 @@ class MainWindow(QMainWindow):
                 focus_path=focus_path,
                 embedded_zip=embedded_zip,
                 as_disk_image=as_disk_image,
+                private_key=private_key,
             )
 
-    def _on_password_required(self, was_wrong: bool, reason: str = "") -> None:
+    def _on_password_required(
+        self, was_wrong: bool, reason: str = "", needs: str = "password"
+    ) -> None:
         if hasattr(self, "_progress"):
             self._progress.close()
+
+        if getattr(self, "_loading_as_disk_image", False):
+            self._ask_disk_image_secret(was_wrong, reason, needs)
+            return
 
         title = "Incorrect Password" if was_wrong else "Password Required"
         prompt = _with_reason(
@@ -3603,6 +3680,7 @@ class MainWindow(QMainWindow):
             append_to_tree=self._append_to_tree,
             itunes_zip_prefix=getattr(self, "_loading_itunes_zip_prefix", None),
             password=password,
+            focus_path=getattr(self, "_loading_focus_path", None),
             embedded_zip=getattr(self, "_loading_embedded_zip", False),
             as_disk_image=getattr(self, "_loading_as_disk_image", False),
         )
@@ -3629,6 +3707,77 @@ class MainWindow(QMainWindow):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         return prefix if answer == QMessageBox.StandardButton.Yes else None
+
+    def _confirm_aff4_as_disk_image(self, path: str) -> bool:
+        """An AFF4 container is stored as a ZIP: ask whether to read the disk
+        it holds (Open Disk Image…) or browse the ZIP's members, the
+        container's own parts -- as for an iTunes backup inside a ZIP."""
+        from crush.core.vfs import is_aff4
+
+        try:
+            if not is_aff4(path):
+                return False
+        except Exception:
+            return False
+        answer = QMessageBox.question(
+            self,
+            translate("MainWindow", "AFF4 Container Detected"),
+            translate(
+                "MainWindow",
+                "This ZIP file is an AFF4 forensic container.\n\n"
+                "Open it as a disk image (the acquired disk it holds)?\n"
+                'Choosing "No" opens it as a regular ZIP archive instead, showing the '
+                "container's own parts (streams, maps, metadata).",
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        return answer == QMessageBox.StandardButton.Yes
+
+    def _confirm_sparse_bundle_as_disk_image(self, path: str) -> bool:
+        """An Apple sparse bundle is a folder: ask whether to read the disk
+        its band files hold (Open Disk Image…) or browse the folder, the
+        bundle's own files -- as for an AFF4 or an iTunes backup in a ZIP."""
+        from crush.core.raw_image import sparse_bundle_kind
+
+        if not sparse_bundle_kind(Path(path)):
+            return False
+        answer = QMessageBox.question(
+            self,
+            translate("MainWindow", "Apple Sparse Bundle Detected"),
+            translate(
+                "MainWindow",
+                "This folder is an Apple sparse bundle, a disk image whose band files "
+                "together hold the disk.\n\n"
+                "Open it as a disk image (the disk it holds)?\n"
+                'Choosing "No" opens it as a regular folder instead, showing the bundle\'s '
+                "own files (Info.plist, token, bands).",
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        return answer == QMessageBox.StandardButton.Yes
+
+    def _ask_disk_image_secret(self, was_wrong: bool, reason: str, needs: str) -> None:
+        """Ask for what opens an encrypted disk image -- its password, or the
+        private key file of a certificate it is sealed to -- and load it
+        again with that."""
+        from crush.ui.disk_image_key_dialog import DiskImageKeyDialog
+
+        dialog = DiskImageKeyDialog(self, reason=reason, was_wrong=was_wrong, needs=needs)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            self._status.showMessage(
+                translate("MainWindow", "Load cancelled: password or private key required")
+            )
+            return
+        self._load_source(
+            self._loading_path,
+            open_after_load=self._open_after_load,
+            append_to_tree=self._append_to_tree,
+            password=dialog.password(),
+            focus_path=getattr(self, "_loading_focus_path", None),
+            embedded_zip=getattr(self, "_loading_embedded_zip", False),
+            as_disk_image=True,
+            private_key=dialog.private_key(),
+        )
 
     def _on_export_thread_finished(self) -> None:
         self._export_thread = None
@@ -4631,10 +4780,27 @@ def _open_as_source_hint(node: VFSNode, vfs: VFS, *, probe_archive: bool) -> str
     return _disk_image_hint(node, vfs)
 
 
+def _regular_file_path(node: VFSNode, vfs: VFS) -> Path | None:
+    """The on-disk path of a regular file in an opened folder, else None.
+    Not for a link (the folder shows links, never follows them) or a
+    special file (reading a FIFO blocks)."""
+    import stat
+
+    if not isinstance(vfs, DirectoryVFS):
+        return None
+    path = Path(node.path)
+    try:
+        return path if stat.S_ISREG(path.lstat().st_mode) else None
+    except OSError:
+        return None
+
+
 def _disk_image_hint(node: VFSNode, vfs: VFS) -> str:
     """A disk image is never probed for (see open_vfs); a file whose name or
-    acquisition signature says it is one gets pointed at the explicit
-    action. EnCase logical evidence isn't one, and says so."""
+    container content says it is one gets pointed at the explicit action.
+    Logical evidence isn't one, and says so. A file in an opened folder is
+    judged exactly as when it is opened (by the image reader's recognition);
+    an archive member by its name and first bytes."""
     from crush.core.vfs import SNIFF_BYTES, is_logical_evidence, looks_like_disk_image
 
     try:
@@ -4644,10 +4810,10 @@ def _disk_image_hint(node: VFSNode, vfs: VFS) -> str:
     if is_logical_evidence(head):
         return translate(
             "MainWindow",
-            "EnCase logical evidence (L01/Lx01) — holds copies of files, not a disk; "
-            "Crush doesn't open logical evidence yet",
+            "logical evidence (EnCase L01/Lx01 or FTK Imager AD1) — holds copies of files, "
+            "not a disk; Crush doesn't open logical evidence yet",
         )
-    if looks_like_disk_image(node.name, head):
+    if looks_like_disk_image(node.name, head, _regular_file_path(node, vfs)):
         return translate(
             "MainWindow",
             "looks like a disk image — right-click → Open Disk Image in New Window to read it",

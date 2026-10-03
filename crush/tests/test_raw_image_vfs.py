@@ -911,7 +911,7 @@ class TestOnlyOpenedWhenAskedFor:
         vfs = open_vfs(dst)
         try:
             assert isinstance(vfs, FileVFS)
-            assert "acquisition signature" in str(vfs.fallback_note)
+            assert "EWF container" in str(vfs.fallback_note)
         finally:
             vfs.close()
 
