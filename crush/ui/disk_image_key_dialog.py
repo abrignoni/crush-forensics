@@ -26,6 +26,8 @@ from PySide6.QtWidgets import (
 )
 from crush.ui.i18n import translate
 
+_MIN_WIDTH_CHARS = 90
+
 
 class DiskImageKeyDialog(QDialog):
     """Ask for a disk image's password or private key file. Call exec(); on
@@ -43,11 +45,19 @@ class DiskImageKeyDialog(QDialog):
         super().__init__(parent)
         self._by_key_only = needs == "private key"
         if was_wrong:
-            title = translate("DiskImageKeyDialog", "Incorrect Password or Key")
+            title = (translate("DiskImageKeyDialog", "Incorrect Private Key")
+                     if self._by_key_only else
+                     translate("DiskImageKeyDialog", "Incorrect Password or Key"))
         else:
             title = translate("DiskImageKeyDialog", "Encrypted Disk Image")
         self.setWindowTitle(title)
         self._build_ui(reason, was_wrong)
+        # Word-wrapped labels let Qt pick the narrowest width, which breaks
+        # the reader's reason (often with a path in it) into many short
+        # lines; wide enough for it, in the font's own units (HiDPI, longer
+        # translations).
+        self.setMinimumWidth(self.fontMetrics().averageCharWidth() * _MIN_WIDTH_CHARS)
+        self.adjustSize()
 
     def _build_ui(self, reason: str, was_wrong: bool) -> None:
         root = QVBoxLayout(self)

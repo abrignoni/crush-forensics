@@ -7,21 +7,24 @@ All notable changes to Crush will be documented in this file.
 ### New Features
 
 - Added to the forensic audit report -> Support for viewing every release's report in the browser on GitHub Pages, with a release history and a README badge.
-- Added to raw disk images -> Support for NTFS files compressed by the Windows overlay filter (WOF: `compact /exe`, CompactOS) with XPRESS (LZX is not decoded and says so), and for U-Boot environments and Belkin NVRAM stores in flash dumps. ([@abrignoni](https://github.com/abrignoni), [#138](https://github.com/kalink0/crush-forensics/pull/138))
-- Added to Open Disk Image… -> Support for AFF4, Apple disk images (`.dmg`, `.sparseimage`, `.sparsebundle` folders) and VHD, VHDX, VMDK and QCOW virtual disks, including differencing disks and encrypted containers opened with a password or a certificate's private key. ([@abrignoni](https://github.com/abrignoni), [#138](https://github.com/kalink0/crush-forensics/pull/138))
-- Added to Verify Acquisition Hash -> Support for the container's own checksums (UDIF checksums, AFF4 stream and map hashes). ([#138](https://github.com/kalink0/crush-forensics/pull/138))
+- Added to raw disk images -> Support for NTFS files compressed by the Windows overlay filter (WOF) with XPRESS. ([@abrignoni](https://github.com/abrignoni), [#138](https://github.com/kalink0/crush-forensics/pull/138))
+- Added to raw disk images -> Support for U-Boot environments and Belkin NVRAM stores in flash dumps. ([@abrignoni](https://github.com/abrignoni), [#138](https://github.com/kalink0/crush-forensics/pull/138))
+- Added to Open Disk Image… -> Support for AFF4, Apple disk images and VHD, VHDX, VMDK and QCOW virtual disks. ([@abrignoni](https://github.com/abrignoni), [#138](https://github.com/kalink0/crush-forensics/pull/138))
+- Added to Open Disk Image… -> Support for encrypted containers, opened with a password or a private key. ([@abrignoni](https://github.com/abrignoni), [#138](https://github.com/kalink0/crush-forensics/pull/138))
+- Added to Verify Acquisition Hash -> Support for the container's own checksums. ([@abrignoni](https://github.com/abrignoni), [#138](https://github.com/kalink0/crush-forensics/pull/138))
 
 ### Bug Fixes
 
-- Fixed an online-only cloud placeholder on NTFS (e.g. OneDrive Files On-Demand) reading as zeros of its recorded size; it is still listed, and reading it now says that its content is not in the image. ([@abrignoni](https://github.com/abrignoni), [#138](https://github.com/kalink0/crush-forensics/pull/138))
-- Fixed an NTFS-compressed file reading short when one of its compression units ends early; it now reads at its recorded length, with the rest of that unit as zeros. ([@abrignoni](https://github.com/abrignoni), [#138](https://github.com/kalink0/crush-forensics/pull/138))
-- Fixed a locked BitLocker volume not being named (one was shown as an empty FAT32 volume); opening it as a disk image now says it is BitLocker-encrypted and what would open it. ([@abrignoni](https://github.com/abrignoni), [#138](https://github.com/kalink0/crush-forensics/pull/138))
+- Fixed an online-only NTFS cloud placeholder reading as zeros. ([@abrignoni](https://github.com/abrignoni), [#138](https://github.com/kalink0/crush-forensics/pull/138))
+- Fixed an NTFS-compressed file reading short when a compression unit ends early. ([@abrignoni](https://github.com/abrignoni), [#138](https://github.com/kalink0/crush-forensics/pull/138))
+- Fixed a locked BitLocker volume showing as an empty FAT32 volume. ([@abrignoni](https://github.com/abrignoni), [#138](https://github.com/kalink0/crush-forensics/pull/138))
 
 ### Changed
 
-- Open Disk Image… names FTK Imager logical evidence (AD1) as logical evidence, as it does L01/Lx01. ([@abrignoni](https://github.com/abrignoni), [#138](https://github.com/kalink0/crush-forensics/pull/138))
-- An opened container names the files its disk is read from and what decrypted it; opened normally, a container points at Open Disk Image… or asks to open as one. ([#138](https://github.com/kalink0/crush-forensics/pull/138))
-- Bundled [qnxprobe](https://github.com/abrignoni/qnxprobe) updated to v1.57 (from v1.38) and [ewfprobe](https://github.com/abrignoni/ewfprobe) to v0.12.0 (from v0.2.0). ([@abrignoni](https://github.com/abrignoni), [#138](https://github.com/kalink0/crush-forensics/pull/138))
+- Open Disk Image… names FTK Imager AD1 as logical evidence. ([@abrignoni](https://github.com/abrignoni), [#138](https://github.com/kalink0/crush-forensics/pull/138))
+- An opened container names the files its disk is read from and what decrypted it. ([#138](https://github.com/kalink0/crush-forensics/pull/138))
+- Opening a container normally points at Open Disk Image… or asks to open it as one. ([#138](https://github.com/kalink0/crush-forensics/pull/138))
+- Bundled [qnxprobe](https://github.com/abrignoni/qnxprobe) updated to v1.57 and [ewfprobe](https://github.com/abrignoni/ewfprobe) to v0.12.0. ([@abrignoni](https://github.com/abrignoni), [#138](https://github.com/kalink0/crush-forensics/pull/138))
 
 ## v0.21.0 - 2026-09-30
 

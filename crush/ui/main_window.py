@@ -132,9 +132,8 @@ class _LoadSourceWorker(QObject):
             if self._integrity:
                 self._log_source_hash()
         except WrongPasswordError as exc:
-            # A rejection doesn't say whether the source also opens the other
-            # way, so the retry offers both; "private key" only when the
-            # source itself says nothing else opens it (below).
+            # A rejection doesn't say what opens the source; the window asks
+            # again the way the first prompt did (_disk_image_retry_needs).
             self.password_required.emit(True, i18n.exception_text(exc), "password")
             return
         except PasswordRequiredError as exc:
@@ -3762,6 +3761,9 @@ class MainWindow(QMainWindow):
         again with that."""
         from crush.ui.disk_image_key_dialog import DiskImageKeyDialog
 
+        needs, self._disk_image_needs = _disk_image_retry_needs(
+            getattr(self, "_disk_image_needs", None), self._loading_path, was_wrong, needs,
+        )
         dialog = DiskImageKeyDialog(self, reason=reason, was_wrong=was_wrong, needs=needs)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             self._status.showMessage(
@@ -4778,6 +4780,19 @@ def _open_as_source_hint(node: VFSNode, vfs: VFS, *, probe_archive: bool) -> str
         if probe_archive and is_browsable_source_file(node.path):
             return _browse_hint()
     return _disk_image_hint(node, vfs)
+
+
+def _disk_image_retry_needs(
+    remembered: tuple[str, str] | None, path: str, was_wrong: bool, needs: str,
+) -> tuple[str, tuple[str, str]]:
+    """What to ask an encrypted disk image for, and what to remember: the
+    first prompt asks what the reader says opens it ("password", which a
+    key may also do, or "private key" alone); a retry after a rejected
+    password or key asks the same way for the same image -- a rejection
+    doesn't say what opens it, the first prompt did."""
+    if was_wrong and remembered is not None and remembered[0] == path:
+        return remembered[1], remembered
+    return needs, (path, needs)
 
 
 def _regular_file_path(node: VFSNode, vfs: VFS) -> Path | None:
