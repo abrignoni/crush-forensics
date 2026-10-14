@@ -266,6 +266,11 @@ def open_raw_image(path: Path, *, password: str = "", private_key: str = "") -> 
 
     try:
         size = qnxprobe.image_size(image)  # type: ignore[no-untyped-call]
+        # An LVM2 logical volume split into runs, or striped, is read through
+        # a map and placed past the image's end; its base reads only through
+        # the handle lvm_image() returns (the image itself when there is none),
+        # so that handle is the one kept.
+        image = qnxprobe.lvm_image(image, size)  # type: ignore[no-untyped-call]
         vols = qnxprobe.volumes(image, size)  # type: ignore[no-untyped-call]
     except Exception as exc:
         image.close()
@@ -371,8 +376,12 @@ def _compute_unallocated_gaps(vols: list[dict[str, Any]], total_size: int) -> li
     silently absent from the tree just because no partition table entry
     claims it.
     """
+    # A logical volume read through a map is placed past the image's end
+    # (qnxprobe.lvm_image): its runs lie inside the physical volumes listed
+    # here, so it covers nothing of its own.
     regions = sorted(
-        ((vol.get("base") or 0, vol.get("size") or 0) for vol in vols),
+        ((vol.get("base") or 0, vol.get("size") or 0) for vol in vols
+         if (vol.get("base") or 0) < total_size),
         key=lambda region: region[0],
     )
     gaps: list[dict[str, Any]] = []

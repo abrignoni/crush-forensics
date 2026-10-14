@@ -9,7 +9,7 @@
 
 Only the bytes an examiner actually opens ever leave the image. A disk image found inside a folder, archive or another image opens the same way via right-click → **Open Disk Image in New Window**.
 
-Supported filesystems: NTFS, FAT32, FAT16, FAT12, exFAT, ext2/3/4, F2FS, HFS+, APFS, QNX6, QNX4, ETFS, EFS, QNX IFS boot images, and the flash filesystems of embedded Linux devices: SquashFS 4.0, JFFS2, UBI/UBIFS, YAFFS1 and YAFFS2. MBR and GPT partition tables are read, GPT on disks with 512- and 4096-byte logical sectors (4Kn drives, UFS storage in current smartphones). A split `.001..NNN` dd set is joined automatically from whichever segment is opened; an acquisition joins its own numbered segments (`.E01`/`.E02`…, `.s01`…, `.Ex01`…) the same way, and an AFD opens whole from any `.aff` file in its folder. Built on [abrignoni/qnxprobe](https://github.com/abrignoni/qnxprobe) and [abrignoni/ewfprobe](https://github.com/abrignoni/ewfprobe).
+Supported filesystems: NTFS, FAT32, FAT16, FAT12, exFAT, ext2/3/4, F2FS, HFS+, APFS, QNX6, QNX4, ETFS, EFS, QNX IFS boot images, and the flash filesystems of embedded Linux devices: SquashFS 4.0, JFFS2, UBI/UBIFS, YAFFS1 and YAFFS2. MBR and GPT partition tables are read, and the logical volumes of an LVM2 volume group (one run of extents, split into runs, striped, or RAID1 and mirror, read from the first copy that is all in the image), GPT on disks with 512- and 4096-byte logical sectors (4Kn drives, UFS storage in current smartphones). A split `.001..NNN` dd set is joined automatically from whichever segment is opened; an acquisition joins its own numbered segments (`.E01`/`.E02`…, `.s01`…, `.Ex01`…) the same way, and an AFD opens whole from any `.aff` file in its folder. Built on [abrignoni/qnxprobe](https://github.com/abrignoni/qnxprobe) and [abrignoni/ewfprobe](https://github.com/abrignoni/ewfprobe).
 
 Which of FAT12 and FAT16 a volume is comes from its count of clusters, as Microsoft's FAT specification has it, not from the type string in its boot sector. Windows CE's transaction-safe FAT, which writes `TFAT16` or `TFAT32` as its type string, is read as the FAT16 or FAT32 it is. A TFAT16 volume keeps its files under one folder in its root (`__TFAT_HIDDEN_ROOT_DIR__` on the volumes the reader was measured on), and that folder is shown as stored.
 
@@ -43,7 +43,7 @@ Each partition or bare filesystem qnxprobe finds becomes one top-level node, nam
 
 **Nothing is hidden**, in keeping with this project's general rule that a forensic tool must never make part of the source look less accessible than it actually is:
 
-- **Unallocated space** — the bytes before, between, and after partition table entries (alignment padding, trailing slack) are not something the underlying reader reports on its own; Crush computes these gaps itself and lists them as their own readable leaf nodes.
+- **Unallocated space** — the bytes before, between, and after partition table entries (alignment padding, trailing slack) are not something the underlying reader reports on its own; Crush computes these gaps itself and lists them as their own readable leaf nodes. An LVM2 logical volume split into runs or striped has no single place in the image (its runs lie inside its physical volumes), so it adds no gap of its own.
 - **A partition with an unsupported filesystem** — one qnxprobe's partition-table parsing finds but has no reader for (or doesn't recognize the filesystem inside at all) — is still listed, as a plain file rather than a folder, and is fully readable as the raw bytes of that region (opens in Hex View via the normal "no parser matched" fallback).
 - In both cases, selecting the node shows an explicit **Filesystem** / **Status** entry in the Properties panel explaining what it is and why it isn't parsed, instead of just an unremarkable file size.
 
@@ -96,7 +96,7 @@ What a container records about its own data besides a hash of the disk is recomp
 ### Known limitations
 
 - **Containers not read** — VDI disk images, AFM, EnCase Lx01 logical evidence, encrypted Ex01, encrypted AFF4 and AFF4-L, an Apple disk image unlocked by a keybag or in the older version 1 encrypted format, a QCOW encrypted with LUKS, a VMDK SESPARSE extent, and a VHD split into `.v01` files. Each is refused with the reason.
-- **Volumes encrypted inside the disk** — a locked BitLocker volume, an encrypted APFS volume and FileVault are named with what would open them, not read; Crush has no way to give the password, recovery password or key file for them yet.
+- **Volumes encrypted inside the disk** — a locked BitLocker volume, an encrypted APFS volume and FileVault are named with what would open them, not read; Crush has no way to give the password, recovery password or key file for them yet. A LUKS container is named as encrypted and not read, for the same reason: Crush takes no LUKS passphrase.
 - **Named streams of deleted files** are not listed in `$Recovered`.
 - **No other filesystems yet** — notably Btrfs, XFS, and LittleFS (common on smartwatches and other small embedded/IoT devices) are not covered by the underlying reader.
 - **No snapshot support** — NTFS Volume Shadow Copies and APFS snapshots are not read; only the filesystem's current, live state (plus the deleted-file recovery above) is available.
