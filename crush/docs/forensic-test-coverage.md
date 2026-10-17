@@ -18,7 +18,7 @@ In the tables, a number is how many checks exist; **not tested** means there is 
 
 ## Overview
 
-252 checks in total.
+256 checks in total.
 
 ### Sources
 
@@ -35,7 +35,7 @@ In the tables, a number is how many checks exist; **not tested** means there is 
 | [Cellebrite UFDR](#cellebrite-ufdr) | 2 | 1 | 1 | not tested | not tested | 1 |
 | [Cellebrite UFD](#cellebrite-ufd) | 2 | 1 | 1 | not tested | not tested | 1 |
 | [Cellebrite UFDX](#cellebrite-ufdx) | 2 | 1 | 1 | not tested | not tested | 1 |
-| [Raw disk image](#raw-disk-image) | 2 | 1 | 1 | 6 | not tested | 1 |
+| [Raw disk image](#raw-disk-image) | 2 | 1 | 1 | 7 | not tested | 1 |
 | [EWF acquisition (.E01)](#ewf-acquisition-e01) | 1 | not tested | not tested | 3 | not tested | not tested |
 | [SMART acquisition (.s01)](#smart-acquisition-s01) | 1 | not tested | not tested | 2 | not tested | not tested |
 | [EWF2 acquisition (.Ex01)](#ewf2-acquisition-ex01) | 1 | not tested | not tested | 2 | not tested | not tested |
@@ -61,6 +61,9 @@ In the tables, a number is how many checks exist; **not tested** means there is 
 | [F2FS](#f2fs) | not tested | not tested | not tested | not tested | not tested | not tested |
 | [HFS+](#hfs) | not tested | not tested | not tested | not tested | not tested | not tested |
 | [APFS](#apfs) | not tested | not tested | not tested | not tested | not tested | not tested |
+| [XFS](#xfs) | not tested | not tested | not tested | 1 | not tested | not tested |
+| [Btrfs](#btrfs) | not tested | not tested | not tested | 1 | not tested | not tested |
+| [ReFS](#refs) | not tested | not tested | not tested | 1 | not tested | not tested |
 | [QNX6](#qnx6) | not tested | not tested | not tested | not tested | not tested | not tested |
 | [QNX4](#qnx4) | not tested | not tested | not tested | not tested | not tested | not tested |
 | [QNX IFS](#qnx-ifs) | not tested | not tested | not tested | not tested | not tested | not tested |
@@ -212,6 +215,7 @@ No forensic checks.
 - **Known-output Verification** — The extents of an LVM2 physical volume no logical volume holds are listed and read as the image holds them ([test_raw_image_lvm.py](../../crush/tests/test_raw_image_lvm.py), `test_lvm_free_extents_are_a_readable_region_of_their_own`)
 - **Known-output Verification** — A LUKS container without its passphrase is listed as locked, with the reader's reason, and reads as the bytes on the disk ([test_raw_image_lvm.py](../../crush/tests/test_raw_image_lvm.py), `test_a_luks_container_stays_listed_until_its_passphrase_is_given`)
 - **Known-output Verification** — A LUKS1 container opened with its passphrase lists files with the bytes its volume held, and the container still reads as the encrypted bytes on the disk ([test_raw_image_lvm.py](../../crush/tests/test_raw_image_lvm.py), `test_a_luks_container_opens_with_its_passphrase`)
+- **Known-output Verification** — Every file on the LVM2 RAID4, RAID5, RAID6 and RAID10 logical volumes of one image reads back with the bytes hashed through the device lvm2 assembled ([test_raw_image_raid.py](../../crush/tests/test_raw_image_raid.py), `test_every_file_on_lvm_raid_volumes_in_one_image_reads_back`)
 - **Reproducibility** — Reading the same file from a raw image twice must return byte-identical data ([test_forensic.py](../../crush/tests/test_forensic.py), `test_raw_image_vfs_read_is_reproducible`)
 - *Not tested:* Completeness
 
@@ -362,6 +366,21 @@ No forensic checks.
 #### APFS
 
 No forensic checks.
+
+#### XFS
+
+- **Known-output Verification** — Every file on an XFS v5 volume with 4 KiB sectors reads back at its path with the bytes hashed from the source tree mkfs.xfs wrote it from ([test_raw_image_xfs_btrfs_refs.py](../../crush/tests/test_raw_image_xfs_btrfs_refs.py), `test_xfs_every_file_reads_back_as_written`)
+- *Not tested:* Source Immutability, No Side Effects, Read-only Media, Completeness, Reproducibility
+
+#### Btrfs
+
+- **Known-output Verification** — Every file on a zlib-compressed Btrfs volume reads back at its path with the bytes hashed from the source tree mkfs.btrfs wrote it from ([test_raw_image_xfs_btrfs_refs.py](../../crush/tests/test_raw_image_xfs_btrfs_refs.py), `test_btrfs_every_file_reads_back_as_written`)
+- *Not tested:* Source Immutability, No Side Effects, Read-only Media, Completeness, Reproducibility
+
+#### ReFS
+
+- **Known-output Verification** — Every file and alternate data stream on a Windows 11 ReFS 3.14 volume reads back with the SHA-256 Windows recorded, streams beside their file as file:stream ([test_raw_image_xfs_btrfs_refs.py](../../crush/tests/test_raw_image_xfs_btrfs_refs.py), `test_refs_every_file_and_stream_reads_back_as_windows_recorded`)
+- *Not tested:* Source Immutability, No Side Effects, Read-only Media, Completeness, Reproducibility
 
 #### QNX6
 

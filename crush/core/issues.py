@@ -2356,6 +2356,29 @@ MESSAGES: dict[str, str] = {
         "the same data is not checked",
         "entry.raw_lvm_copy_read",
     ),
+    "entry.raw_lvm_raid": QT_TRANSLATE_NOOP(
+        "ParseIssue",
+        "{raid} volume in {stripe}-byte stripes over {images} image volume(s), {missing} "
+        "of them not read",
+        "entry.raw_lvm_raid",
+    ),
+    "entry.raw_lvm_raid_image_run": QT_TRANSLATE_NOOP(
+        "ParseIssue",
+        "image volume {image}: its bytes {start}–{end} at image offset(s) {offsets}",
+        "entry.raw_lvm_raid_image_run",
+    ),
+    "entry.raw_lvm_raid_image_missing": QT_TRANSLATE_NOOP(
+        "ParseIssue",
+        "image volume {image}: not read (missing, or marked as not to be read); its bytes "
+        "are read from another copy or rebuilt from parity",
+        "entry.raw_lvm_raid_image_missing",
+    ),
+    "entry.raw_volume_damage": QT_TRANSLATE_NOOP(
+        "ParseIssue",
+        "{count} damaged structure(s) recorded and skipped while the volume was listed, "
+        "first: {first}",
+        "entry.raw_volume_damage",
+    ),
     "entry.raw_volume_past_end": QT_TRANSLATE_NOOP(
         "ParseIssue",
         "{bytes} bytes of this volume lie past the end of the image: the image holds "

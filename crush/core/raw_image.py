@@ -4,8 +4,8 @@
 (+ `ewfprobe`) readers.
 
 qnxprobe reads MBR/GPT partition tables (512- and 4096-byte sectors), the
-logical volumes of an LVM2 volume group, and then NTFS, FAT32, FAT16, FAT12,
-exFAT, ext2/3/4, F2FS, HFS+, APFS, QNX6, QNX4, ETFS, EFS, QNX IFS, SquashFS,
+logical volumes of an LVM2 volume group, and then NTFS, ReFS, FAT32, FAT16, FAT12,
+exFAT, ext2/3/4, XFS, Btrfs, F2FS, HFS+, APFS, QNX6, QNX4, ETFS, EFS, QNX IFS, SquashFS,
 JFFS2, UBI/UBIFS and YAFFS1/YAFFS2 directly from a raw image,
 a bare partition or a flash dump — no mounting, no admin rights. ewfprobe reads
 a container -- an EWF (.E01) or other forensic acquisition, an Apple disk image,
@@ -60,6 +60,14 @@ if TYPE_CHECKING:
     from crush.core.vfs import VFSNode
 
 _MAX_DEPTH = 64  # a directory this deep in a walk is a loop, not a directory
+
+# A Linux md RAID member found on its own (qnxprobe volumes() kind "linux md
+# member"): what the reader would read is the array, from all its members.
+_MD_MEMBER_NOTE = (
+    "a member of a Linux md RAID array: the array is read from all its members "
+    "together, and Crush opens one image at a time, so this region is not walked "
+    "(it reads as raw bytes)"
+)
 
 # The first bytes of the containers the image reader opens, taken from the
 # reader's own constants so the hint never drifts from what it recognises.
@@ -345,6 +353,11 @@ def open_raw_image(
         # so that handle is the one kept.
         image = qnxprobe.lvm_image(image, size)  # type: ignore[no-untyped-call]
         vols = qnxprobe.volumes(image, size)  # type: ignore[no-untyped-call]
+        for vol in vols:
+            if vol.get("kind") == "linux md member":
+                # The reader's note points at assembling the array from all
+                # its members, which Crush, opening one image, does not do.
+                vol["note"] = _MD_MEMBER_NOTE
         lvm_reports = {
             vol["base"]: list(
                 identify_fs(image, vol["base"], vol["size"])[1]  # type: ignore[no-untyped-call]
@@ -539,6 +552,9 @@ def _lvm_layout(lvm_map: Any) -> Any:
 
     parts: list[Any] = []
     for seg in lvm_map.describe():
+        if "raid" in seg:
+            parts.extend(_lvm_raid_layout(seg))
+            continue
         start, length = seg["volume_offset"], seg["length"]
         span = {"start": f"{start:,}", "end": f"{start + length - 1:,}"}
         if "stripe_size" in seg:
@@ -551,6 +567,30 @@ def _lvm_layout(lvm_map: Any) -> Any:
                 **span, "offset": f"{seg['image_offsets'][0]:,}",
             }))
     return join_notes(parts)
+
+
+def _lvm_raid_layout(seg: dict[str, Any]) -> list[ParseIssue]:
+    """An LVM RAID4/5/6/10 logical volume (qnxprobe RaidLvMap.describe()): its
+    level and stripe, then the runs of each of its image volumes in the image.
+    An image volume the reader left out is said to be missing: its bytes are
+    read from another copy or rebuilt from parity."""
+    images = seg.get("images") or []
+    parts = [ParseIssue("entry.raw_lvm_raid", {
+        "raid": str(seg["raid"]), "stripe": f"{seg['stripe_size']:,}",
+        "images": str(len(images)),
+        "missing": str(sum(1 for img in images if not isinstance(img, list))),
+    })]
+    for number, image in enumerate(images):
+        if not isinstance(image, list):
+            parts.append(ParseIssue("entry.raw_lvm_raid_image_missing", {"image": str(number)}))
+            continue
+        for run in image:
+            start, length = run["volume_offset"], run["length"]
+            parts.append(ParseIssue("entry.raw_lvm_raid_image_run", {
+                "image": str(number), "start": f"{start:,}", "end": f"{start + length - 1:,}",
+                "offsets": ", ".join(f"{o:,}" for o in run["image_offsets"]),
+            }))
+    return parts
 
 
 def _lvm_report_line(label: str, reports: dict[int, list[str]]) -> str:
@@ -736,12 +776,20 @@ def build_volume_node(
     notes: list[Any] = list(facts_status)
     if vol.get("note"):
         notes.insert(0, ParseIssue("entry.raw_volume_note", detail=str(vol["note"])))
-    if notes:
-        node.status = join_notes(notes)
     _walk_into(walker, walker.root, node, read_map, path, set())
     # The root folder can carry named streams too; they sit beside its
     # entries as ":name", the way the root's own name is empty.
     _add_stream_nodes(walker, walker.root, "", path, node.children, read_map)
+    # A reader that skips a structure failing its check (XFS, Btrfs, ReFS)
+    # records it in the walker while listing, after volumes() wrote the note;
+    # without this the listing would look complete.
+    count, damage = qnxprobe.damage_lines(walker, 1)  # type: ignore[no-untyped-call]
+    if count and damage[0] not in str(vol.get("note") or ""):
+        notes.append(ParseIssue("entry.raw_volume_damage", {
+            "count": f"{count:,}", "first": damage[0],
+        }))
+    if notes:
+        node.status = join_notes(notes)
     node.children.sort(key=lambda n: (not n.is_dir, n.name.lower()))
     if hasattr(walker, "deleted_files"):
         _add_deleted_files_node(walker, node, read_map, path)
@@ -908,8 +956,8 @@ def _add_stream_nodes(
     bytes are not part of the file's own size or content, so without a node
     of their own they would not be seen at all.
 
-    Only NTFS streams are readable (walker.streams() gives each a node that
-    read_file() takes). qnxprobe reads an NTFS stream from its first stored
+    Only NTFS and ReFS streams are readable (walker.streams() on NTFS, and
+    walker.stream_ref() on ReFS, give each a node that read_file() takes). qnxprobe reads an NTFS stream from its first stored
     cluster and does not list a stream that stores nothing; both are said on
     the node. Where the walker names a stream but has no reader for it, the
     node has no content and says so -- its recorded size is in the status,
@@ -926,6 +974,10 @@ def _add_stream_nodes(
             {sname: (ref, size) for sname, ref, size in walker.streams(wnode)}
             if named and hasattr(walker, "streams") else {}
         )
+        if named and not hasattr(walker, "streams") and hasattr(walker, "stream_ref"):
+            # ReFS names each stream with its size and reads it through
+            # stream_ref(); it has no streams() list.
+            readable = {sname: (walker.stream_ref(wnode, sname), size) for sname, size in named}
     except Exception as exc:
         # The file itself is listed; only its streams could not be named.
         children.append(VFSNode(

@@ -124,5 +124,15 @@
   "raw_fat12.deleted.sha256": "585a2a00f54619bb5d7b70f68a73ae4ffd2608d9efedac39414b0cd101133162",
   "raw_lvm.img.gz": "973567c4feb02001b92ec55255d2f20319e80b50c839f2f5060dfbb7c46b3721",
   "raw_lvm.sha256": "3fc1f1cfeb74efd711044d92605c880da3feb26768cc0028f0182ae5c405462c",
-  "raw_luks1.img.gz": "e2121ca78abfd63a946415e2cd82f71dbc64e0a99ac897e0c884ebecf29538d8"
+  "raw_luks1.img.gz": "e2121ca78abfd63a946415e2cd82f71dbc64e0a99ac897e0c884ebecf29538d8",
+  "raw_xfs.img.gz": "4404d1c9f3da9e0d3de7589da99d4e15cbdbab786eec666121a50d6f03db516a",
+  "raw_xfs.known.json.gz": "821d140ade178497915a97de69bca54b9095967753922a71056a255f8c1e744f",
+  "raw_btrfs.img.gz": "237414cc34ab66ec7fab20634abdb7957e8dc03eeebbba2dd3540d0887763584",
+  "raw_btrfs.sha256": "15bf1a906e1a72e750768a7b5162862f9894526e40603e6e962f0b3b2180a8f1",
+  "raw_refs.bin.gz": "2adef62c7e1f7a33a560d377a7919d0fb1915c89129372b0e0b9b8174bbc302c",
+  "raw_refs.known.tsv.gz": "ba97897b2e7445a0080dec741bc7fe7f09a4550cdcdc8c22d3f2c39a4cb2c44f",
+  "raw_lvm_raid.img.gz": "8b748e7311a4a4cdc04e655d2e678905374289594cbaef6b48bdf3ee1597f50d",
+  "raw_raid_trees.sha256": "129a16340b8d847ed6aab351fd06ec3972b7114a6590a8a3c7c610c9c9e2ea17",
+  "raw_md_member.img.gz": "7e8d4a1e45a6a9df7a4bebccd02a6c609bfec5456e8023d5d4ebf867a18ba630",
+  "raw_ddf_member.img.gz": "6cad3c2320bffe44d3da510bb0fa3ed29f5a847b91252cab46bae566aaf1b024"
 }

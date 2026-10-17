@@ -1,6 +1,6 @@
 # Vendored, byte-for-byte and UNMODIFIED, from:
 #   https://github.com/abrignoni/ewfprobe
-#   commit 34c34b8496f0f3d57450d77b7f27a3247f4b08aa (2026-09-27, tag v0.12.0)
+#   commit 9c77734b3a641e21b5d8536a5de8940078796053 (2026-10-15, tag v0.13.0)
 #   ewfprobe.py, MIT License (see LICENSE in this directory)
 #
 # Crush's own wrapper lives in crush/core/raw_image.py — qnxprobe reaches this
@@ -119,7 +119,7 @@ try:
 except ImportError:
     lzma = None
 
-__version__ = "0.12.0"
+__version__ = "0.13.0"
 
 # ---------------------------------------------------------------- constants
 

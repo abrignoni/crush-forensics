@@ -16,6 +16,9 @@ All notable changes to Crush will be documented in this file.
 - Added to raw disk images -> Support for Windows CE transaction-safe FAT (TFAT16 and TFAT32), read as FAT16 and FAT32. ([@abrignoni](https://github.com/abrignoni), [#156](https://github.com/kalink0/crush-forensics/pull/156))
 - Added to raw disk images -> Support for the logical volumes of an LVM2 volume group: one run of extents, split into runs, striped, and RAID1 or mirror. ([@abrignoni](https://github.com/abrignoni), [#160](https://github.com/kalink0/crush-forensics/pull/160))
 - Added to raw disk images -> Support for LUKS1 and LUKS2 containers, opened with their passphrase. ([@abrignoni](https://github.com/abrignoni), [#160](https://github.com/kalink0/crush-forensics/pull/160))
+- Added to raw disk images -> Support for XFS, Btrfs and ReFS 3.x volumes, with ReFS alternate data streams.
+- Added to raw disk images -> Support for LVM2 RAID4, RAID5, RAID6 and RAID10 logical volumes held in one image, with each volume's layout.
+- Added to raw disk images -> Support for showing how many structures an XFS, Btrfs or ReFS volume skipped as damaged while it was listed, and the first of them.
 - Added to raw disk images -> Support for unlocking BitLocker and encrypted APFS volumes inside the image with a password, recovery password or startup key file.
 - Added to raw disk images -> Support for showing what the reader reports on each volume: its place in the image, encryption, an LVM2 volume's layout and the copy a RAID1 or mirror volume is read from.
 - Added to raw disk images -> Support for listing an LVM2 physical volume's free extents as readable regions of their own.
@@ -32,6 +35,7 @@ All notable changes to Crush will be documented in this file.
 
 ### Bug Fixes
 
+- Fixed one member of a Linux md RAID array opened on its own being read as the filesystem found inside it; it is now named as a RAID member and not walked.
 - Fixed rare crashes while file types are indexed or other work runs in the background.
 - Fixed the SQLite Table viewer's timestamp decoding dropping sub-second digits, and the Value Inspector rounding them.
 - Fixed the Hex pane's search field shrinking to a few characters next to a table or tree and in narrow tabs.
@@ -70,7 +74,7 @@ All notable changes to Crush will be documented in this file.
 ### Changed
 
 - Tools → Paste & Decode… is now called Tools → BLOB Inspector…, the inspector it opens.
-- Bundled [qnxprobe](https://github.com/abrignoni/qnxprobe) updated to v1.67 (from v1.57). ([@abrignoni](https://github.com/abrignoni), [#149](https://github.com/kalink0/crush-forensics/pull/149), [#151](https://github.com/kalink0/crush-forensics/pull/151), [#153](https://github.com/kalink0/crush-forensics/pull/153), [#156](https://github.com/kalink0/crush-forensics/pull/156), [#160](https://github.com/kalink0/crush-forensics/pull/160))
+- Bundled [qnxprobe](https://github.com/abrignoni/qnxprobe) updated to v1.71 (from v1.57) and [ewfprobe](https://github.com/abrignoni/ewfprobe) to v0.13.0 (from v0.12.0). ([@abrignoni](https://github.com/abrignoni), [#149](https://github.com/kalink0/crush-forensics/pull/149), [#151](https://github.com/kalink0/crush-forensics/pull/151), [#153](https://github.com/kalink0/crush-forensics/pull/153), [#156](https://github.com/kalink0/crush-forensics/pull/156), [#160](https://github.com/kalink0/crush-forensics/pull/160))
 - Bundled [ccl_simplesnappy](https://github.com/cclgroupltd/ccl_simplesnappy) updated to v0.4 (from v0.1).
 - The SEGB viewer's columns now follow the order of the fields' bytes in the record.
 
