@@ -62,11 +62,10 @@ if TYPE_CHECKING:
 _MAX_DEPTH = 64  # a directory this deep in a walk is a loop, not a directory
 
 # A Linux md RAID member found on its own (qnxprobe volumes() kind "linux md
-# member"): what the reader would read is the array, from all its members.
+# member"): the reader reads the array only when assembled from its members.
 _MD_MEMBER_NOTE = (
-    "a member of a Linux md RAID array: the array is read from all its members "
-    "together, and Crush opens one image at a time, so this region is not walked "
-    "(it reads as raw bytes)"
+    "a member of a Linux md RAID array: the array is not assembled here, as Crush "
+    "opens one image at a time, so this region is not walked (it reads as raw bytes)"
 )
 
 # The first bytes of the containers the image reader opens, taken from the
