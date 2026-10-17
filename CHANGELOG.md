@@ -77,7 +77,7 @@ All notable changes to Crush will be documented in this file.
 ### Changed
 
 - Tools → Paste & Decode… is now called Tools → BLOB Inspector…, the inspector it opens.
-- Bundled [qnxprobe](https://github.com/abrignoni/qnxprobe) updated to v1.71 (from v1.57) and [ewfprobe](https://github.com/abrignoni/ewfprobe) to v0.13.0 (from v0.12.0). ([@abrignoni](https://github.com/abrignoni), [#149](https://github.com/kalink0/crush-forensics/pull/149), [#151](https://github.com/kalink0/crush-forensics/pull/151), [#153](https://github.com/kalink0/crush-forensics/pull/153), [#156](https://github.com/kalink0/crush-forensics/pull/156), [#160](https://github.com/kalink0/crush-forensics/pull/160), [#163](https://github.com/kalink0/crush-forensics/pull/163))
+- Bundled [qnxprobe](https://github.com/abrignoni/qnxprobe) updated to v1.72 (from v1.57) and [ewfprobe](https://github.com/abrignoni/ewfprobe) to v0.13.0 (from v0.12.0). ([@abrignoni](https://github.com/abrignoni), [#149](https://github.com/kalink0/crush-forensics/pull/149), [#151](https://github.com/kalink0/crush-forensics/pull/151), [#153](https://github.com/kalink0/crush-forensics/pull/153), [#156](https://github.com/kalink0/crush-forensics/pull/156), [#160](https://github.com/kalink0/crush-forensics/pull/160), [#163](https://github.com/kalink0/crush-forensics/pull/163))
 - Bundled [ccl_simplesnappy](https://github.com/cclgroupltd/ccl_simplesnappy) updated to v0.4 (from v0.1).
 - The SEGB viewer's columns now follow the order of the fields' bytes in the record.
 
